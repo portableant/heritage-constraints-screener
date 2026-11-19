@@ -52,16 +52,17 @@ export class MapController {
 
     this.map.addSource('buffer-src', { type: 'geojson', data: empty });
     this.map.addSource('assets-src', { type: 'geojson', data: empty });
+    this.map.addSource('asset-markers-src', { type: 'geojson', data: empty });
     this.map.addSource('selected-asset-src', { type: 'geojson', data: empty });
     this.map.addSource('site-src', { type: 'geojson', data: empty });
     this.map.addSource('draw-src', { type: 'geojson', data: empty });
 
-    // Search buffer ring
+    // 1. Search buffer ring
     this.map.addLayer({
       id: 'buffer-fill',
       type: 'fill',
       source: 'buffer-src',
-      paint: { 'fill-color': '#2563eb', 'fill-opacity': 0.1 },
+      paint: { 'fill-color': '#2563eb', 'fill-opacity': 0.08 },
     });
     this.map.addLayer({
       id: 'buffer-line',
@@ -70,35 +71,63 @@ export class MapController {
       paint: { 'line-color': '#2563eb', 'line-width': 2, 'line-dasharray': [3, 2] },
     });
 
-    // Heritage asset polygons & points
+    // 2. All available heritage asset polygons within the radius
     this.map.addLayer({
       id: 'assets-fill',
       type: 'fill',
       source: 'assets-src',
       filter: ['in', ['geometry-type'], ['literal', ['Polygon', 'MultiPolygon']]],
-      paint: { 'fill-color': ['get', '_color'], 'fill-opacity': 0.25 },
+      paint: {
+        'fill-color': [
+          'case',
+          ['==', ['get', '_category'], 'Listed Buildings'],
+          [
+            'match',
+            ['coalesce', ['get', 'Grade'], ['get', 'GRADE'], ''],
+            'I', '#9333ea',
+            'II*', '#ea580c',
+            'II', '#d97706',
+            ['get', '_color'],
+          ],
+          ['get', '_color'],
+        ],
+        'fill-opacity': [
+          'case',
+          ['==', ['get', '_category'], 'Listed Buildings'],
+          0.35,
+          0.16,
+        ],
+      },
     });
     this.map.addLayer({
       id: 'assets-outline',
       type: 'line',
       source: 'assets-src',
       filter: ['in', ['geometry-type'], ['literal', ['Polygon', 'MultiPolygon']]],
-      paint: { 'line-color': ['get', '_color'], 'line-width': 1.5 },
-    });
-    this.map.addLayer({
-      id: 'assets-points',
-      type: 'circle',
-      source: 'assets-src',
-      filter: ['in', ['geometry-type'], ['literal', ['Point', 'MultiPoint']]],
       paint: {
-        'circle-radius': 6,
-        'circle-color': ['get', '_color'],
-        'circle-stroke-width': 1.5,
-        'circle-stroke-color': '#ffffff',
+        'line-color': [
+          'case',
+          ['==', ['get', '_category'], 'Listed Buildings'],
+          [
+            'match',
+            ['coalesce', ['get', 'Grade'], ['get', 'GRADE'], ''],
+            'I', '#9333ea',
+            'II*', '#ea580c',
+            'II', '#d97706',
+            ['get', '_color'],
+          ],
+          ['get', '_color'],
+        ],
+        'line-width': [
+          'case',
+          ['==', ['get', '_category'], 'Listed Buildings'],
+          2,
+          1.5,
+        ],
       },
     });
 
-    // Highlighted / Selected Heritage Asset (on card or map click)
+    // 3. Highlighted / Selected Heritage Asset (on card or map click)
     this.map.addLayer({
       id: 'selected-asset-fill',
       type: 'fill',
@@ -120,6 +149,33 @@ export class MapController {
       filter: ['in', ['geometry-type'], ['literal', ['Polygon', 'MultiPolygon']]],
       paint: { 'line-color': '#facc15', 'line-width': 2.5 },
     });
+
+    // 4. Point marker for EVERY feature in the radius (rendered on top of polygons)
+    this.map.addLayer({
+      id: 'asset-markers',
+      type: 'circle',
+      source: 'asset-markers-src',
+      paint: {
+        'circle-radius': [
+          'case',
+          ['==', ['get', '_category'], 'Listed Buildings'],
+          6.5,
+          5.5,
+        ],
+        'circle-color': [
+          'match',
+          ['coalesce', ['get', 'Grade'], ['get', 'GRADE'], ''],
+          'I', '#9333ea',      // Purple for Grade I
+          'II*', '#ea580c',    // Deep Orange for Grade II*
+          'II', '#d97706',     // Amber for Grade II
+          ['get', '_color'],
+        ],
+        'circle-stroke-width': 2,
+        'circle-stroke-color': '#ffffff',
+      },
+    });
+
+    // Selected marker ring highlight
     this.map.addLayer({
       id: 'selected-asset-point',
       type: 'circle',
@@ -133,7 +189,7 @@ export class MapController {
       },
     });
 
-    // Red-line site boundary / pin
+    // 5. Red-line site boundary / pin
     this.map.addLayer({
       id: 'site-fill',
       type: 'fill',
@@ -161,7 +217,7 @@ export class MapController {
       },
     });
 
-    // Active polygon sketch preview
+    // 6. Active polygon sketch preview
     this.map.addLayer({
       id: 'draw-line',
       type: 'line',
@@ -178,8 +234,9 @@ export class MapController {
         return;
       }
 
+      // Check point markers first (top layer), then polygon fills
       const hit = this.map.queryRenderedFeatures(e.point, {
-        layers: ['assets-fill', 'assets-points'],
+        layers: ['asset-markers', 'assets-fill'],
       });
       if (hit.length > 0) {
         const uid = hit[0].properties?._uid;
@@ -203,7 +260,7 @@ export class MapController {
       this.finishDrawing();
     });
 
-    ['assets-fill', 'assets-points'].forEach((layerId) => {
+    ['asset-markers', 'assets-fill'].forEach((layerId) => {
       this.map.on('mouseenter', layerId, () => {
         if (!this.isDrawing) this.map.getCanvas().style.cursor = 'pointer';
       });
@@ -267,6 +324,48 @@ export class MapController {
     this.onSiteChanged?.(feature);
   }
 
+  /**
+   * Derives a representative Point marker for every feature in the radius
+   * (using native point geometry or turf.pointOnFeature for polygons).
+   */
+  _toMarkerPoint(feature) {
+    if (!feature?.geometry) return null;
+
+    if (feature.geometry.type === 'Point') {
+      return {
+        type: 'Feature',
+        geometry: feature.geometry,
+        properties: feature.properties,
+      };
+    }
+
+    if (feature.geometry.type === 'MultiPoint') {
+      const coords = feature.geometry.coordinates?.[0];
+      if (!coords) return null;
+      return {
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: coords },
+        properties: feature.properties,
+      };
+    }
+
+    try {
+      const pt = turf.pointOnFeature(feature);
+      return {
+        type: 'Feature',
+        geometry: pt.geometry,
+        properties: feature.properties,
+      };
+    } catch {
+      const pt = turf.centroid(feature);
+      return {
+        type: 'Feature',
+        geometry: pt.geometry,
+        properties: feature.properties,
+      };
+    }
+  }
+
   renderResults(bufferedFeature, assets) {
     if (!this.isLoaded) return;
 
@@ -278,6 +377,11 @@ export class MapController {
       return feat;
     });
 
+    // Build a point marker for EVERY feature in the radius
+    const markerFeatures = indexedAssets
+      .map((feat) => this._toMarkerPoint(feat))
+      .filter(Boolean);
+
     this.map.getSource('selected-asset-src')?.setData({
       type: 'FeatureCollection',
       features: [],
@@ -286,9 +390,15 @@ export class MapController {
       type: 'FeatureCollection',
       features: bufferedFeature ? [bufferedFeature] : [],
     });
+    // Loads all available polygons
     this.map.getSource('assets-src')?.setData({
       type: 'FeatureCollection',
       features: indexedAssets,
+    });
+    // Loads point markers for every feature
+    this.map.getSource('asset-markers-src')?.setData({
+      type: 'FeatureCollection',
+      features: markerFeatures,
     });
 
     if (bufferedFeature) {
@@ -298,19 +408,40 @@ export class MapController {
   }
 
   _highlightAsset(feature) {
+    if (!feature) {
+      this.map.getSource('selected-asset-src')?.setData({
+        type: 'FeatureCollection',
+        features: [],
+      });
+      return;
+    }
+
+    const highlightFeatures = [feature];
+    // If the selected feature is a polygon, also highlight its marker pin
+    if (
+      feature.geometry?.type === 'Polygon' ||
+      feature.geometry?.type === 'MultiPolygon'
+    ) {
+      const markerPt = this._toMarkerPoint(feature);
+      if (markerPt) highlightFeatures.push(markerPt);
+    }
+
     this.map.getSource('selected-asset-src')?.setData({
       type: 'FeatureCollection',
-      features: feature ? [feature] : [],
+      features: highlightFeatures,
     });
   }
 
   async focusAsset(feature) {
     if (!this.isLoaded || !feature) return;
 
-    // Immediately show cached geometry and zoom to it
     this._highlightAsset(feature);
 
-    const [lng, lat] = turf.centroid(feature).geometry.coordinates;
+    const markerPt = this._toMarkerPoint(feature);
+    const [lng, lat] = markerPt
+      ? markerPt.geometry.coordinates
+      : turf.centroid(feature).geometry.coordinates;
+
     if (feature.geometry.type === 'Polygon' || feature.geometry.type === 'MultiPolygon') {
       const bbox = turf.bbox(feature);
       this.map.fitBounds(bbox, { padding: 80, maxZoom: 18 });
@@ -320,7 +451,6 @@ export class MapController {
 
     this._showAssetPopup(feature, { lng, lat });
 
-    // Fetch full-resolution GeoJSON feature directly from Historic England server
     const fullFeature = await fetchFullFeatureGeoJSON(feature);
     const uid = feature.properties?._uid;
     if (uid) this.assetLookup.set(uid, fullFeature);
@@ -330,6 +460,13 @@ export class MapController {
   _showAssetPopup(feature, lngLat) {
     const meta = normalizeAssetMeta(feature);
     const dist = meta.intersects ? '0 m (Intersects)' : `${meta.distanceMeters} m`;
+    const hasPolygon =
+      feature.geometry?.type === 'Polygon' ||
+      feature.geometry?.type === 'MultiPolygon';
+    const geomBadge = hasPolygon
+      ? `<span class="inline-block px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 text-[10px]">Polygon Boundary</span>`
+      : `<span class="inline-block px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 text-[10px]">Point Location</span>`;
+
     const linkLabel = meta.isResearchReport ? 'Open Research Report' : 'Open NHLE Record';
     const linkHtml = meta.hyperlink
       ? `<div class="pt-1">
@@ -344,7 +481,10 @@ export class MapController {
           <div class="font-semibold text-slate-900 leading-snug">${meta.name}</div>
           <div class="text-slate-600">${meta.category}${meta.listEntry !== 'N/A' ? ` · ${meta.listEntry}` : ''}</div>
           ${meta.subtitle ? `<div class="text-[11px] text-slate-500">${meta.subtitle}</div>` : ''}
-          <div class="text-slate-700">Distance: <strong>${dist}</strong></div>
+          <div class="flex items-center justify-between gap-2 text-slate-700">
+            <span>Distance: <strong>${dist}</strong></span>
+            ${geomBadge}
+          </div>
           ${linkHtml}
         </div>
       `)

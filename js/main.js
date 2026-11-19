@@ -76,3 +76,9 @@ document.getElementById('geojson-input')?.addEventListener('change', async (e) =
   const feature = parsed.type === 'FeatureCollection' ? parsed.features[0] : parsed;
   if (feature) map.setSite(feature, { fly: true, zoom: 15 });
 });
+
+// Automatically screen a default site on page load
+map.setSite(turf.point(SAMPLE_SITES.berkhamsted.center), {
+  fly: true,
+  zoom: SAMPLE_SITES.berkhamsted.zoom,
+});

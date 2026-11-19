@@ -16,7 +16,11 @@ export function evaluateConstraints(siteFeature, candidateFeatures, maxRadiusMet
         },
       };
     })
-    .filter((f) => Number.isFinite(f.properties._distanceMeters) && f.properties._distanceMeters <= maxRadiusMeters)
+    .filter(
+      (f) =>
+        Number.isFinite(f.properties._distanceMeters) &&
+        f.properties._distanceMeters <= maxRadiusMeters
+    )
     .sort((a, b) => a.properties._distanceMeters - b.properties._distanceMeters);
 
   return {
@@ -31,7 +35,7 @@ export function computeEdgeDistance(site, target) {
   try {
     if (turf.booleanIntersects(site, target)) return 0;
   } catch {
-    // Fall through to coordinate/line distance if complex topology check fails
+    // Fall through to boundary distance if complex topology check fails
   }
 
   const siteBoundary =
@@ -39,7 +43,7 @@ export function computeEdgeDistance(site, target) {
       ? turf.polygonToLine(turf.buffer(site, 0.001, { units: 'kilometers' }))
       : turf.polygonToLine(site);
 
-  // If target is Point or MultiPoint, measure directly to site boundary
+  // Target is Point or MultiPoint
   if (target.geometry.type === 'Point' || target.geometry.type === 'MultiPoint') {
     let minMeters = Infinity;
     turf.coordEach(target, (coord) => {
@@ -49,7 +53,7 @@ export function computeEdgeDistance(site, target) {
     return minMeters;
   }
 
-  // Target is Polygon or MultiPolygon: measure boundary vertices against site boundary
+  // Target is Polygon or MultiPolygon
   const targetLines = turf.polygonToLine(target);
   let minMeters = Infinity;
 
@@ -58,7 +62,6 @@ export function computeEdgeDistance(site, target) {
     if (d < minMeters) minMeters = d;
   });
 
-  // Also check site vertices against target boundary in case target has long straight edges
   turf.coordEach(siteBoundary, (coord) => {
     const d = minDistanceToLines(turf.point(coord), targetLines);
     if (d < minMeters) minMeters = d;
@@ -68,24 +71,20 @@ export function computeEdgeDistance(site, target) {
 }
 
 /**
- * Safely computes point-to-line distance whether `lineOrCollection`
- * is a LineString/MultiLineString Feature or a FeatureCollection (from MultiPolygon).
+ * Flattens any FeatureCollection or MultiLineString into individual LineStrings
+ * before calling turf.pointToLineDistance (required by Turf v7).
  */
 function minDistanceToLines(pt, lineOrCollection) {
   if (!lineOrCollection) return Infinity;
 
-  if (lineOrCollection.type === 'FeatureCollection') {
-    let min = Infinity;
-    for (const feat of lineOrCollection.features || []) {
-      if (!feat?.geometry) continue;
-      const d = turf.pointToLineDistance(pt, feat, { units: 'meters' });
-      if (d < min) min = d;
-    }
-    return min;
-  }
+  let min = Infinity;
+  turf.flattenEach(lineOrCollection, (flatFeature) => {
+    if (flatFeature?.geometry?.type !== 'LineString') return;
+    const d = turf.pointToLineDistance(pt, flatFeature, { units: 'meters' });
+    if (d < min) min = d;
+  });
 
-  if (!lineOrCollection.geometry) return Infinity;
-  return turf.pointToLineDistance(pt, lineOrCollection, { units: 'meters' });
+  return min;
 }
 
 function classifySensitivity(assets) {

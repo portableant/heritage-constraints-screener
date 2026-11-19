@@ -74,6 +74,10 @@ export class ResultsView {
             .map((asset, idx) => {
               const m = normalizeAssetMeta(asset);
               const color = asset.properties._color || '#64748b';
+              const hasPolygon =
+                asset.geometry?.type === 'Polygon' ||
+                asset.geometry?.type === 'MultiPolygon';
+
               const badge = m.intersects
                 ? `<span class="px-2 py-0.5 rounded bg-red-100 text-red-800 font-semibold">0 m · Intersects</span>`
                 : `<span class="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-medium">${m.distanceMeters} m</span>`;
@@ -82,6 +86,10 @@ export class ResultsView {
                 m.listEntry !== 'N/A'
                   ? `<span class="font-mono text-[10px] text-slate-500">${m.isResearchReport ? 'Rep.' : 'ID'} ${m.listEntry}</span>`
                   : '';
+
+              const geomBadge = hasPolygon
+                ? `<span class="px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 text-[10px] font-medium">Boundary</span>`
+                : `<span class="px-1.5 py-0.5 rounded bg-slate-50 text-slate-400 text-[10px]">Point</span>`;
 
               const linkText = m.isResearchReport ? 'Report PDF ↗' : 'NHLE ↗';
               const fileSpecTag = m.fileSpec
@@ -119,9 +127,10 @@ export class ResultsView {
                   }
 
                   <div class="flex items-center justify-between gap-2 pt-1 pl-4 text-[11px] text-slate-500">
-                    <div class="flex items-center gap-2 truncate">
+                    <div class="flex items-center gap-1.5 flex-wrap min-w-0">
                       <span>${m.category}</span>
                       ${idTag}
+                      ${geomBadge}
                       ${fileSpecTag}
                     </div>
                     ${

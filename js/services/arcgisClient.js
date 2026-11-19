@@ -45,18 +45,28 @@ export async function queryHeritageLayers(siteFeature, bufferMeters) {
       throw new Error(`${layer.category}: ${geojson.error.message || 'ArcGIS error'}`);
     }
 
-    return (geojson.features || []).map((f) => ({
-      ...f,
-      properties: {
-        ...f.properties,
-        _layerId: layer.id,
-        _layerUrl: layer.url,
-        _category: layer.category,
-        _color: layer.color,
-        _dedupeKey: layer.dedupeKey ? f.properties?.[layer.dedupeKey] : null,
-        _priority: layer.priority ?? 1,
-      },
-    }));
+    return (geojson.features || []).map((f) => {
+      const rawDedupeVal = layer.dedupeKey
+        ? f.properties?.[layer.dedupeKey] ?? f.properties?.[layer.dedupeKey.toUpperCase()]
+        : null;
+      const dedupeKey =
+        rawDedupeVal !== null && rawDedupeVal !== undefined && String(rawDedupeVal).trim() !== ''
+          ? String(rawDedupeVal).trim()
+          : null;
+
+      return {
+        ...f,
+        properties: {
+          ...f.properties,
+          _layerId: layer.id,
+          _layerUrl: layer.url,
+          _category: layer.category,
+          _color: layer.color,
+          _dedupeKey: dedupeKey,
+          _priority: layer.priority ?? 1,
+        },
+      };
+    });
   });
 
   const settled = await Promise.allSettled(requests);
