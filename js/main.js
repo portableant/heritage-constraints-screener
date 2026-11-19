@@ -47,7 +47,120 @@ async function runScreening() {
   resultsView.render(state);
 }
 
-// Centered screen feedback overlay
+// ---------------------------------------------------------------------------
+// First-Use Open Data Disclaimer Modal & Intro.js Guided Tour
+// ---------------------------------------------------------------------------
+const WELCOME_STORAGE_KEY = 'hcs_welcome_seen_v1';
+
+function startIntroTour() {
+  if (typeof window.introJs !== 'function') return;
+
+  const isCompact = window.innerWidth < 768;
+
+  const candidateSteps = [
+    {
+      element: '#search-form',
+      title: '1. Search Any UK Site',
+      intro:
+        'Enter a UK postcode, town name, or WGS84 coordinates to jump straight to a site and run an automated heritage constraints screen.',
+      position: 'bottom',
+    },
+    {
+      element: '#buffer-select',
+      title: '2. Adjust Screening Radius',
+      intro:
+        'Change the search buffer from 250 m up to 2,000 m to evaluate nearby designated heritage assets and setting impacts.',
+      position: 'bottom',
+    },
+    {
+      element: '#draw-btn',
+      title: '3. Define a Red-Line Boundary',
+      intro:
+        'Sketch your own red-line site polygon directly on the map or upload a GeoJSON boundary for accurate area and intersection checks.',
+      position: 'bottom',
+    },
+    {
+      title: '4. Interactive Open Data Map',
+      intro:
+        'Click anywhere on the map to drop a site pin, or click any colored polygon or marker to inspect its designation details and boundary.',
+    },
+    {
+      element: '#results-pane',
+      title: '5. Sensitivity Summary & Exports',
+      intro:
+        'Review live Historic England designations, Heritage at Risk entries, local HER contacts, and ADS grey literature—then export a brief as PDF, Markdown, or GeoJSON.',
+      position: isCompact ? 'top' : 'left',
+    },
+  ];
+
+  // Keep floating steps (no element) plus steps whose target elements are visible
+  const visibleSteps = candidateSteps.filter((step) => {
+    if (!step.element) return true;
+    const el = document.querySelector(step.element);
+    return el && el.offsetParent !== null;
+  });
+
+  window
+    .introJs()
+    .setOptions({
+      steps: visibleSteps,
+      showProgress: true,
+      showBullets: false,
+      scrollToElement: false,
+      exitOnOverlayClick: true,
+      nextLabel: 'Next →',
+      prevLabel: '← Back',
+      doneLabel: 'Finish',
+    })
+    .start();
+}
+
+function initFirstUseModal() {
+  const overlay = document.getElementById('welcome-modal-overlay');
+  const tourBtn = document.getElementById('welcome-tour-btn');
+  const skipBtn = document.getElementById('welcome-skip-btn');
+
+  if (!overlay) return;
+
+  const closeWelcome = (launchTour = false) => {
+    overlay.classList.add('hidden');
+    try {
+      localStorage.setItem(WELCOME_STORAGE_KEY, '1');
+    } catch {
+      // Ignore storage restrictions in private browsing
+    }
+    if (launchTour) {
+      requestAnimationFrame(() => startIntroTour());
+    }
+  };
+
+  tourBtn?.addEventListener('click', () => closeWelcome(true));
+  skipBtn?.addEventListener('click', () => closeWelcome(false));
+
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) closeWelcome(false);
+  });
+
+  let hasSeen = false;
+  try {
+    hasSeen = localStorage.getItem(WELCOME_STORAGE_KEY) === '1';
+  } catch {
+    hasSeen = false;
+  }
+
+  if (!hasSeen) {
+    overlay.classList.remove('hidden');
+    tourBtn?.focus();
+  }
+}
+
+document.getElementById('tour-btn')?.addEventListener('click', () => {
+  startIntroTour();
+});
+
+// ---------------------------------------------------------------------------
+// Centered Screen Feedback Overlay (Search & GeoJSON Errors)
+// ---------------------------------------------------------------------------
 const searchForm = document.getElementById('search-form');
 const searchInput = document.getElementById('search-input');
 let dismissTimer = null;
@@ -134,7 +247,16 @@ document.addEventListener('click', (e) => {
 });
 
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') clearSearchError();
+  if (e.key === 'Escape') {
+    clearSearchError();
+    const welcomeOverlay = document.getElementById('welcome-modal-overlay');
+    if (welcomeOverlay && !welcomeOverlay.classList.contains('hidden')) {
+      welcomeOverlay.classList.add('hidden');
+      try {
+        localStorage.setItem(WELCOME_STORAGE_KEY, '1');
+      } catch {}
+    }
+  }
 });
 
 searchInput?.addEventListener('input', () => {
@@ -219,7 +341,8 @@ document.getElementById('geojson-input')?.addEventListener('change', async (e) =
   }
 });
 
-// Automatically screen a default site on page load
+// Initialize first-use modal and automatically screen a default site on page load
+initFirstUseModal();
 map.setSite(turf.point(SAMPLE_SITES.berkhamsted.center), {
   fly: true,
   zoom: SAMPLE_SITES.berkhamsted.zoom,
