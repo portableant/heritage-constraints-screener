@@ -14,6 +14,36 @@ async function fetchWithRetry(url, retries = 2, baseDelayMs = 400) {
   }
 }
 
+function esriFeatureToGeoJSON(esriFeat) {
+  const g = esriFeat.geometry;
+  if (!g) return null;
+
+  let geometry = null;
+  if (typeof g.x === 'number' && typeof g.y === 'number') {
+    geometry = { type: 'Point', coordinates: [g.x, g.y] };
+  } else if (Array.isArray(g.points) && g.points.length > 0) {
+    geometry =
+      g.points.length === 1
+        ? { type: 'Point', coordinates: g.points[0] }
+        : { type: 'MultiPoint', coordinates: g.points };
+  } else if (Array.isArray(g.rings) && g.rings.length > 0) {
+    geometry = { type: 'Polygon', coordinates: g.rings };
+  } else if (Array.isArray(g.paths) && g.paths.length > 0) {
+    geometry =
+      g.paths.length === 1
+        ? { type: 'LineString', coordinates: g.paths[0] }
+        : { type: 'MultiLineString', coordinates: g.paths };
+  }
+
+  if (!geometry) return null;
+
+  return {
+    type: 'Feature',
+    geometry,
+    properties: esriFeat.attributes || {},
+  };
+}
+
 export async function queryHeritageLayers(siteFeature, bufferMeters) {
   const buffered = turf.buffer(siteFeature, bufferMeters / 1000, { units: 'kilometers' });
   const [minX, minY, maxX, maxY] = turf.bbox(buffered);
@@ -27,6 +57,7 @@ export async function queryHeritageLayers(siteFeature, bufferMeters) {
   });
 
   const requests = HERITAGE_LAYERS.map(async (layer) => {
+    const queryFormat = layer.format || 'geojson';
     const params = new URLSearchParams({
       where: '1=1',
       geometry: envelope,
@@ -35,17 +66,22 @@ export async function queryHeritageLayers(siteFeature, bufferMeters) {
       inSR: '4326',
       outSR: '4326',
       outFields: '*',
-      f: 'geojson',
+      f: queryFormat,
     });
 
     const response = await fetchWithRetry(`${layer.url}/query?${params}`);
-    const geojson = await response.json();
+    const data = await response.json();
 
-    if (geojson.error) {
-      throw new Error(`${layer.category}: ${geojson.error.message || 'ArcGIS error'}`);
+    if (data.error) {
+      throw new Error(`${layer.category}: ${data.error.message || 'ArcGIS error'}`);
     }
 
-    return (geojson.features || []).map((f) => {
+    const features =
+      queryFormat === 'json'
+        ? (data.features || []).map(esriFeatureToGeoJSON).filter(Boolean)
+        : data.features || [];
+
+    return features.map((f) => {
       const rawDedupeVal = layer.dedupeKey
         ? f.properties?.[layer.dedupeKey] ?? f.properties?.[layer.dedupeKey.toUpperCase()]
         : null;
@@ -60,6 +96,7 @@ export async function queryHeritageLayers(siteFeature, bufferMeters) {
           ...f.properties,
           _layerId: layer.id,
           _layerUrl: layer.url,
+          _layerFormat: queryFormat,
           _category: layer.category,
           _color: layer.color,
           _dedupeKey: dedupeKey,
@@ -89,26 +126,26 @@ export async function queryHeritageLayers(siteFeature, bufferMeters) {
   };
 }
 
-/**
- * Fetches a single full-resolution GeoJSON Feature directly from Historic England's
- * ArcGIS REST endpoint using its OBJECTID and source layer URL.
- */
 export async function fetchFullFeatureGeoJSON(feature) {
   const layerUrl = feature?.properties?._layerUrl;
   const objectId = feature?.properties?.OBJECTID;
+  const queryFormat = feature?.properties?._layerFormat || 'geojson';
   if (!layerUrl || objectId == null) return feature;
 
   const params = new URLSearchParams({
     objectIds: String(objectId),
     outFields: '*',
     outSR: '4326',
-    f: 'geojson',
+    f: queryFormat,
   });
 
   try {
     const response = await fetchWithRetry(`${layerUrl}/query?${params}`);
-    const geojson = await response.json();
-    const full = geojson?.features?.[0];
+    const data = await response.json();
+    const raw = data?.features?.[0];
+    if (!raw) return feature;
+
+    const full = queryFormat === 'json' ? esriFeatureToGeoJSON(raw) : raw;
     if (!full) return feature;
 
     return {

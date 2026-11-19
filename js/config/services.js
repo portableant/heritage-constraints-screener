@@ -62,6 +62,14 @@ export const HERITAGE_LAYERS = [
     color: '#475569',
     isPolygon: false,
   },
+ {
+    id: 'heritage-at-risk-2026',
+    category: 'Heritage at Risk',
+    url: `${HE_ARCGIS_BASE}/Historic%20England%20Heritage%20at%20Risk%20Register%202026%20points/FeatureServer/0`,
+    color: '#e11d48',
+    isPolygon: false,
+    format: 'json',
+  },
 ];
 
 export const SAMPLE_SITES = {

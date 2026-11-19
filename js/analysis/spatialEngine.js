@@ -90,24 +90,28 @@ function minDistanceToLines(pt, lineOrCollection) {
 function classifySensitivity(assets) {
   const intersecting = assets.filter((a) => a.properties._intersects);
   const within100m = assets.filter((a) => a.properties._distanceMeters <= 100);
+  const atRisk = assets.filter((a) => a.properties._category === 'Heritage at Risk');
 
   if (intersecting.length > 0) {
     return {
       level: 'High (Direct Intersection)',
       badgeClass: 'bg-red-100 text-red-800 border-red-200',
-      summary: `${intersecting.length} designated or recorded heritage constraint(s) directly intersect the red-line boundary.`,
+      summary: `${intersecting.length} designated or recorded heritage constraint(s) directly intersect the red-line boundary${
+        atRisk.length ? ` (including ${atRisk.length} on the Heritage at Risk Register)` : ''
+      }.`,
     };
   }
-  if (within100m.length > 0) {
+  if (within100m.length > 0 || atRisk.length > 0) {
     return {
-      level: 'Moderate–High (Immediate Setting)',
+      level: 'Moderate–High (Immediate Setting / At Risk)',
       badgeClass: 'bg-amber-100 text-amber-800 border-amber-200',
-      summary: `${within100m.length} asset(s) lie within 100 m; setting and intervisibility assessment likely required under NPPF para. 200.`,
+      summary: `${within100m.length} asset(s) lie within 100 m and ${atRisk.length} asset(s) in the buffer appear on the Heritage at Risk Register; setting and conservation enhancement assessment likely required under NPPF Chapter 16.`,
     };
   }
   return {
     level: 'Low–Moderate (Wider Buffer)',
     badgeClass: 'bg-emerald-100 text-emerald-800 border-emerald-200',
-    summary: 'No direct intersections or assets within 100 m; check local HER for non-designated heritage assets.',
+    summary:
+      'No direct intersections, Heritage at Risk entries, or assets within 100 m; check local HER for non-designated heritage assets.',
   };
 }

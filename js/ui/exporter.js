@@ -33,20 +33,25 @@ export function normalizeAssetMeta(feature) {
   const p = feature.properties || {};
   const isResearchReport =
     p._layerId === 'research-reports' || Boolean(p.Report_Num || p.Report_title);
+  const isHeritageAtRisk =
+    p._category === 'Heritage at Risk' ||
+    Boolean(p.Condition || p.Vulnerability || p.PriorityCategory);
 
   const name =
     p.Name ||
     p.NAME ||
+    p.SiteName ||
+    p.SITE_NAME ||
     p.Report_title ||
     p.TITLE ||
     p.Title ||
-    p.SITE_NAME ||
     p.MONUMENT_NAME ||
     'Unnamed Heritage Asset';
 
   const listEntry =
     p.ListEntry ||
     p.LISTENTRY ||
+    p.HAR_ID ||
     p.Report_Num ||
     p.UID ||
     p.REPORT_NO ||
@@ -72,6 +77,12 @@ export function normalizeAssetMeta(feature) {
   const pages = p.Pages ? String(p.Pages).trim() : null;
   const sizeMb = p.Size_in_MB ? String(p.Size_in_MB).trim() : null;
 
+  // Enhanced Heritage at Risk metadata
+  const condition = p.Condition || p.CONDITION || null;
+  const occupancy = p.Occupancy || p.OCCUPANCY || null;
+  const vulnerability = p.Vulnerability || p.VULNERABILITY || null;
+  const priorityCategory = p.PriorityCategory || p.Priority || p.PRIORITY || null;
+
   // Enhanced NHLE / Conservation Area metadata
   const listDate = formatArcGISDate(p.ListDate || p.LISTDATE || p.DesignationDate);
   const amendDate = formatArcGISDate(p.AmendDate || p.AMENDDATE);
@@ -81,6 +92,9 @@ export function normalizeAssetMeta(feature) {
   // Build concise subtitle & detail lines for UI cards and reports
   const detailParts = [];
   if (grade) detailParts.push(`Grade ${grade}`);
+  if (isHeritageAtRisk && condition) detailParts.push(`Condition: ${condition}`);
+  if (isHeritageAtRisk && priorityCategory) detailParts.push(`Priority: ${priorityCategory}`);
+  if (isHeritageAtRisk && vulnerability) detailParts.push(`Vulnerability: ${vulnerability}`);
   if (reportType) detailParts.push(reportType);
   if (authors) detailParts.push(authors);
   if (year) detailParts.push(year);
@@ -95,6 +109,7 @@ export function normalizeAssetMeta(feature) {
     name: String(name).trim(),
     category: p._category || 'Heritage Constraint',
     isResearchReport,
+    isHeritageAtRisk,
     listEntry: listEntry ? String(listEntry).trim() : 'N/A',
     grade: grade ? `Grade ${grade}` : null,
     distanceMeters: p._distanceMeters ?? null,
@@ -108,6 +123,10 @@ export function normalizeAssetMeta(feature) {
     pages,
     sizeMb,
     fileSpec: fileSpecParts.length > 0 ? fileSpecParts.join(', ') : null,
+    condition,
+    occupancy,
+    vulnerability,
+    priorityCategory,
     listDate,
     amendDate,
     localAuthority,
@@ -198,6 +217,10 @@ export function buildMarkdownBrief(state) {
 
       // Append rich secondary metadata lines when available
       const metaBullets = [];
+      if (m.condition) metaBullets.push(`Condition: **${m.condition}**`);
+      if (m.priorityCategory) metaBullets.push(`Priority: ${m.priorityCategory}`);
+      if (m.vulnerability) metaBullets.push(`Vulnerability: ${m.vulnerability}`);
+      if (m.occupancy) metaBullets.push(`Occupancy: ${m.occupancy}`);
       if (m.authors || m.year) {
         const citation = [m.authors, m.year ? `(${m.year})` : null].filter(Boolean).join(' ');
         metaBullets.push(`Authors / Year: ${citation}`);
@@ -230,7 +253,7 @@ export function buildMarkdownBrief(state) {
     `## Planning & Data Caveats`,
     ``,
     `- **Data Currency:** Live spatial data queried from Historic England Open Data ArcGIS FeatureServices on ${timestamp}.`,
-    `- **Non-Designated Heritage Assets:** This screening covers national designations and Historic England Research Reports. Consult the relevant local authority **Historic Environment Record (HER)** for non-designated archaeological monuments, findspots, and historic landscape characterization.`,
+    `- **Non-Designated Heritage Assets:** This screening covers national designations, the Heritage at Risk Register, and Historic England Research Reports. Consult the relevant local authority **Historic Environment Record (HER)** for non-designated archaeological monuments, findspots, and historic landscape characterization.`,
     `- **Setting & Significance:** Spatial proximity does not equate to harm. Assessment of setting impacts must follow *Historic Environment Good Practice Advice in Planning Note 3 (The Setting of Heritage Assets)* and NPPF Chapter 16.`
   );
 
@@ -401,6 +424,9 @@ export function downloadGeoJSON(state) {
             _normalizedName: meta.name,
             _identifier: meta.listEntry,
             _grade: meta.grade,
+            _condition: meta.condition,
+            _priorityCategory: meta.priorityCategory,
+            _vulnerability: meta.vulnerability,
             _reportType: meta.reportType,
             _authors: meta.authors,
             _year: meta.year,

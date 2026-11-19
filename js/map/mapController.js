@@ -1,5 +1,91 @@
+import { HERITAGE_LAYERS } from '../config/services.js';
 import { normalizeAssetMeta } from '../ui/exporter.js';
 import { fetchFullFeatureGeoJSON } from '../services/arcgisClient.js';
+
+class MapLegendControl {
+  onAdd(map) {
+    this._map = map;
+    this._collapsed = false;
+
+    this._container = document.createElement('div');
+    this._container.className =
+      'maplibregl-ctrl bg-white/95 backdrop-blur-xs border border-slate-200 rounded-lg shadow-md text-xs text-slate-800 p-2.5 max-w-[220px] select-none';
+
+    const uniqueCategories = [];
+    const seen = new Set();
+    for (const layer of HERITAGE_LAYERS) {
+      if (!seen.has(layer.category)) {
+        seen.add(layer.category);
+        uniqueCategories.push({ category: layer.category, color: layer.color });
+      }
+    }
+
+    const categoryRows = uniqueCategories
+      .map(
+        ({ category, color }) => `
+          <div class="flex items-center gap-2">
+            <span class="inline-block w-2.5 h-2.5 rounded-full shrink-0 border border-white shadow-2xs" style="background-color: ${color};"></span>
+            <span class="truncate text-[11px] text-slate-700">${category}</span>
+          </div>
+        `
+      )
+      .join('');
+
+    this._container.innerHTML = `
+      <div class="flex items-center justify-between gap-3">
+        <span class="font-semibold text-[11px] uppercase tracking-wider text-slate-600">Map Key</span>
+        <button type="button" id="legend-toggle-btn" class="text-[11px] text-slate-500 hover:text-slate-900 font-medium">
+          Hide
+        </button>
+      </div>
+      <div id="legend-body" class="mt-2 space-y-2">
+        <div class="space-y-1">
+          ${categoryRows}
+        </div>
+        <div class="pt-1.5 border-t border-slate-200 space-y-1">
+          <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Listed Building Grades</div>
+          <div class="flex items-center gap-2">
+            <span class="inline-block w-2.5 h-2.5 rounded-full shrink-0" style="background-color: #9333ea;"></span>
+            <span class="text-[11px] text-slate-700">Grade I</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="inline-block w-2.5 h-2.5 rounded-full shrink-0" style="background-color: #ea580c;"></span>
+            <span class="text-[11px] text-slate-700">Grade II*</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="inline-block w-2.5 h-2.5 rounded-full shrink-0" style="background-color: #d97706;"></span>
+            <span class="text-[11px] text-slate-700">Grade II</span>
+          </div>
+        </div>
+        <div class="pt-1.5 border-t border-slate-200 space-y-1">
+          <div class="flex items-center gap-2">
+            <span class="inline-block w-3 h-2 border-2 border-red-600 bg-red-500/20 shrink-0"></span>
+            <span class="text-[11px] text-slate-700">Site Boundary</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="inline-block w-3 h-2 border border-dashed border-blue-600 bg-blue-600/10 shrink-0"></span>
+            <span class="text-[11px] text-slate-700">Search Buffer</span>
+          </div>
+        </div>
+      </div>
+    `;
+
+    const toggleBtn = this._container.querySelector('#legend-toggle-btn');
+    const body = this._container.querySelector('#legend-body');
+    toggleBtn?.addEventListener('click', () => {
+      this._collapsed = !this._collapsed;
+      body.classList.toggle('hidden', this._collapsed);
+      toggleBtn.textContent = this._collapsed ? 'Show' : 'Hide';
+    });
+
+    return this._container;
+  }
+
+  onRemove() {
+    this._container?.parentNode?.removeChild(this._container);
+    this._map = undefined;
+  }
+}
 
 export class MapController {
   constructor(containerId, { onSiteChanged }) {
@@ -33,6 +119,7 @@ export class MapController {
 
     this.map.addControl(new maplibregl.NavigationControl(), 'top-right');
     this.map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-left');
+    this.map.addControl(new MapLegendControl(), 'bottom-right');
 
     this.map.on('load', () => {
       this.isLoaded = true;
@@ -234,7 +321,6 @@ export class MapController {
         return;
       }
 
-      // Check point markers first (top layer), then polygon fills
       const hit = this.map.queryRenderedFeatures(e.point, {
         layers: ['asset-markers', 'assets-fill'],
       });
@@ -324,10 +410,6 @@ export class MapController {
     this.onSiteChanged?.(feature);
   }
 
-  /**
-   * Derives a representative Point marker for every feature in the radius
-   * (using native point geometry or turf.pointOnFeature for polygons).
-   */
   _toMarkerPoint(feature) {
     if (!feature?.geometry) return null;
 
@@ -377,7 +459,6 @@ export class MapController {
       return feat;
     });
 
-    // Build a point marker for EVERY feature in the radius
     const markerFeatures = indexedAssets
       .map((feat) => this._toMarkerPoint(feat))
       .filter(Boolean);
@@ -390,12 +471,10 @@ export class MapController {
       type: 'FeatureCollection',
       features: bufferedFeature ? [bufferedFeature] : [],
     });
-    // Loads all available polygons
     this.map.getSource('assets-src')?.setData({
       type: 'FeatureCollection',
       features: indexedAssets,
     });
-    // Loads point markers for every feature
     this.map.getSource('asset-markers-src')?.setData({
       type: 'FeatureCollection',
       features: markerFeatures,
@@ -417,7 +496,6 @@ export class MapController {
     }
 
     const highlightFeatures = [feature];
-    // If the selected feature is a polygon, also highlight its marker pin
     if (
       feature.geometry?.type === 'Polygon' ||
       feature.geometry?.type === 'MultiPolygon'

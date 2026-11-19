@@ -32,6 +32,7 @@ export class ResultsView {
       this.activeFilter = 'ALL';
     }
 
+    
     const filtered =
       this.activeFilter === 'ALL'
         ? assets
@@ -43,6 +44,13 @@ export class ResultsView {
          </div>`
       : '';
 
+    const categoryColors = new Map();
+    for (const a of assets) {
+      if (a.properties?._category && a.properties?._color) {
+        categoryColors.set(a.properties._category, a.properties._color);
+      }
+    }
+
     const pillsHtml = categories
       .map((cat) => {
         const active = cat === this.activeFilter;
@@ -50,16 +58,30 @@ export class ResultsView {
           cat === 'ALL'
             ? assets.length
             : assets.filter((a) => a.properties._category === cat).length;
+        const color = categoryColors.get(cat) || '#0f172a';
+        const dotHtml =
+          cat === 'ALL'
+            ? ''
+            : `<span class="inline-block w-2 h-2 rounded-full shrink-0" style="background-color: ${
+                active ? '#ffffff' : color
+              };"></span>`;
+
+        const styleAttr = active
+          ? `style="background-color: ${color}; border-color: ${color}; color: #ffffff;"`
+          : `style="border-color: ${color}40;"`;
+
         return `
           <button
             data-filter="${cat}"
-            class="filter-pill px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
+            ${styleAttr}
+            class="filter-pill inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
               active
-                ? 'bg-slate-900 text-white border-slate-900'
-                : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'
+                ? 'shadow-xs'
+                : 'bg-white text-slate-700 hover:bg-slate-50'
             }"
           >
-            ${cat} (${count})
+            ${dotHtml}
+            <span>${cat} (${count})</span>
           </button>
         `;
       })
