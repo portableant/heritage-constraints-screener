@@ -88,9 +88,19 @@ export const SAMPLE_SITES = {
     center: [-1.8262, 51.1789],
     zoom: 14,
   },
-  saltaire: {
-    label: 'Saltaire Model Village (BD18 3HU)',
-    center: [-1.7903, 53.8372],
+  hadrianswall: {
+    label: 'Housesteads Fort (NE47 7AN)',
+    center: [-2.330388, 55.013214],
     zoom: 15,
   },
+  bloomsbury: {
+    label: 'Bloomsbury (WC1)',
+    center: [-0.1276, 51.5246],
+    zoom: 15,
+  },
+  thornborough: {
+    label: 'Thornborough Henges',
+    center: [-1.564761, 54.209864],
+    zoom: 15,
+  }
 };
