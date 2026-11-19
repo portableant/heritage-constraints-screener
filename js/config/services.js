@@ -5,11 +5,11 @@ export const HERITAGE_LAYERS = [
   {
     id: 'listed-buildings-poly',
     category: 'Listed Buildings',
-    url: `${HE_ARCGIS_BASE}/National_Heritage_List_for_England_NHLE_v02_VIEW/FeatureServer/1`,
+    url: `${HE_ARCGIS_BASE}/National_Heritage_List_for_England_NHLE_v02_VIEW/FeatureServer/3`,
     color: '#d97706',
     isPolygon: true,
     dedupeKey: 'ListEntry',
-    priority: 1, // Preferred over point geometry
+    priority: 1, // Polygon footprint preferred over point
   },
   {
     id: 'listed-buildings-pt',
@@ -23,22 +23,29 @@ export const HERITAGE_LAYERS = [
   {
     id: 'scheduled-monuments',
     category: 'Scheduled Monuments',
-    url: `${HE_ARCGIS_BASE}/National_Heritage_List_for_England_NHLE_v02_VIEW/FeatureServer/2`,
+    url: `${HE_ARCGIS_BASE}/National_Heritage_List_for_England_NHLE_v02_VIEW/FeatureServer/6`,
     color: '#dc2626',
     isPolygon: true,
   },
   {
     id: 'parks-gardens',
     category: 'Registered Parks & Gardens',
-    url: `${HE_ARCGIS_BASE}/National_Heritage_List_for_England_NHLE_v02_VIEW/FeatureServer/3`,
+    url: `${HE_ARCGIS_BASE}/National_Heritage_List_for_England_NHLE_v02_VIEW/FeatureServer/7`,
     color: '#059669',
     isPolygon: true,
   },
   {
     id: 'battlefields',
     category: 'Registered Battlefields',
-    url: `${HE_ARCGIS_BASE}/National_Heritage_List_for_England_NHLE_v02_VIEW/FeatureServer/4`,
+    url: `${HE_ARCGIS_BASE}/National_Heritage_List_for_England_NHLE_v02_VIEW/FeatureServer/8`,
     color: '#7c3aed',
+    isPolygon: true,
+  },
+  {
+    id: 'world-heritage-sites',
+    category: 'World Heritage Sites',
+    url: `${HE_ARCGIS_BASE}/National_Heritage_List_for_England_NHLE_v02_VIEW/FeatureServer/10`,
+    color: '#be185d',
     isPolygon: true,
   },
   {
@@ -48,7 +55,7 @@ export const HERITAGE_LAYERS = [
     color: '#0284c7',
     isPolygon: true,
   },
- {
+  {
     id: 'research-reports',
     category: 'HE Research Reports',
     url: `${HE_ARCGIS_BASE}/Historic_England_Research_Spatial_Reports/FeatureServer/475`,

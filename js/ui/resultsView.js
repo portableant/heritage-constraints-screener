@@ -1,10 +1,11 @@
 import { normalizeAssetMeta } from './exporter.js';
 
 export class ResultsView {
-  constructor(containerId, { onSelectAsset, onExportMarkdown, onExportGeoJSON }) {
+  constructor(containerId, { onSelectAsset, onExportMarkdown, onExportPDF, onExportGeoJSON }) {
     this.container = document.getElementById(containerId);
     this.onSelectAsset = onSelectAsset;
     this.onExportMarkdown = onExportMarkdown;
+    this.onExportPDF = onExportPDF;
     this.onExportGeoJSON = onExportGeoJSON;
     this.activeFilter = 'ALL';
     this.lastState = null;
@@ -27,7 +28,6 @@ export class ResultsView {
     const { assets, sensitivity, errors = [] } = state.results;
     const categories = ['ALL', ...new Set(assets.map((a) => a.properties._category))];
 
-    // Reset filter if the active category has no items in the new result set
     if (this.activeFilter !== 'ALL' && !categories.includes(this.activeFilter)) {
       this.activeFilter = 'ALL';
     }
@@ -147,12 +147,15 @@ export class ResultsView {
         <p class="text-xs leading-relaxed">${sensitivity.summary}</p>
       </div>
 
-      <div class="flex flex-wrap gap-2 no-print">
-        <button id="btn-export-md" class="flex-1 bg-slate-900 hover:bg-slate-800 text-white text-xs font-medium py-2 px-3 rounded transition-colors">
-          Download Markdown Brief
+      <div class="grid grid-cols-3 gap-2 no-print">
+        <button id="btn-export-pdf" class="bg-amber-600 hover:bg-amber-500 text-white text-xs font-medium py-2 px-2.5 rounded transition-colors">
+          Download PDF
         </button>
-        <button id="btn-export-geojson" class="flex-1 bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 text-xs font-medium py-2 px-3 rounded transition-colors">
-          Download GeoJSON
+        <button id="btn-export-md" class="bg-slate-900 hover:bg-slate-800 text-white text-xs font-medium py-2 px-2.5 rounded transition-colors">
+          Markdown
+        </button>
+        <button id="btn-export-geojson" class="bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 text-xs font-medium py-2 px-2.5 rounded transition-colors">
+          GeoJSON
         </button>
       </div>
 
@@ -163,9 +166,23 @@ export class ResultsView {
       <div class="space-y-2">${cardsHtml}</div>
     `;
 
+    this.container.querySelector('#btn-export-pdf')?.addEventListener('click', async (e) => {
+      const btn = e.currentTarget;
+      const originalText = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = 'Building PDF...';
+      try {
+        await this.onExportPDF?.();
+      } finally {
+        btn.disabled = false;
+        btn.textContent = originalText;
+      }
+    });
+
     this.container.querySelector('#btn-export-md')?.addEventListener('click', () => {
       this.onExportMarkdown?.();
     });
+
     this.container.querySelector('#btn-export-geojson')?.addEventListener('click', () => {
       this.onExportGeoJSON?.();
     });

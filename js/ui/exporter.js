@@ -31,7 +31,8 @@ function formatArcGISDate(rawDate) {
  */
 export function normalizeAssetMeta(feature) {
   const p = feature.properties || {};
-  const isResearchReport = p._layerId === 'research-reports' || Boolean(p.Report_Num || p.Report_title);
+  const isResearchReport =
+    p._layerId === 'research-reports' || Boolean(p.Report_Num || p.Report_title);
 
   const name =
     p.Name ||
@@ -116,12 +117,10 @@ export function normalizeAssetMeta(feature) {
 }
 
 /**
- * Generates and downloads a structured Markdown Heritage Constraints Brief
- * with full bibliographic metadata for HE Research Reports and NHLE records.
+ * Builds the structured Markdown Heritage Constraints Brief string
+ * used by both Markdown and PDF exporters.
  */
-export function downloadMarkdown(state) {
-  if (!state?.siteFeature || !state?.results) return;
-
+export function buildMarkdownBrief(state) {
   const { siteFeature, bufferMeters, results } = state;
   const { assets, sensitivity, errors = [] } = results;
   const timestamp = new Date().toISOString().split('T')[0];
@@ -235,11 +234,122 @@ export function downloadMarkdown(state) {
     `- **Setting & Significance:** Spatial proximity does not equate to harm. Assessment of setting impacts must follow *Historic Environment Good Practice Advice in Planning Note 3 (The Setting of Heritage Assets)* and NPPF Chapter 16.`
   );
 
+  return lines.join('\n');
+}
+
+/**
+ * Generates and downloads a structured Markdown Heritage Constraints Brief.
+ */
+export function downloadMarkdown(state) {
+  if (!state?.siteFeature || !state?.results) return;
+  const timestamp = new Date().toISOString().split('T')[0];
+  const markdown = buildMarkdownBrief(state);
+
   triggerDownload(
-    lines.join('\n'),
+    markdown,
     `heritage-constraints-brief-${timestamp}.md`,
     'text/markdown;charset=utf-8'
   );
+}
+
+/**
+ * Converts the Markdown brief into styled HTML and exports a paginated A4 PDF.
+ */
+export async function downloadPDF(state) {
+  if (!state?.siteFeature || !state?.results) return;
+
+  const timestamp = new Date().toISOString().split('T')[0];
+  const markdown = buildMarkdownBrief(state);
+  const renderedHtml = window.marked
+    ? window.marked.parse(markdown)
+    : `<pre>${markdown}</pre>`;
+
+  const wrapper = document.createElement('div');
+  wrapper.innerHTML = `
+    <style>
+      .pdf-report {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        color: #0f172a;
+        font-size: 11pt;
+        line-height: 1.5;
+      }
+      .pdf-report h1 {
+        font-size: 18pt;
+        font-weight: 700;
+        border-bottom: 2px solid #0f172a;
+        padding-bottom: 6px;
+        margin: 0 0 12px 0;
+      }
+      .pdf-report h2 {
+        font-size: 13pt;
+        font-weight: 700;
+        color: #1e293b;
+        margin: 18px 0 8px 0;
+        page-break-after: avoid;
+      }
+      .pdf-report p, .pdf-report li {
+        font-size: 10pt;
+        margin-bottom: 6px;
+      }
+      .pdf-report li {
+        page-break-inside: avoid;
+      }
+      .pdf-report blockquote {
+        margin: 8px 0;
+        padding: 8px 12px;
+        background: #f8fafc;
+        border-left: 3px solid #d97706;
+        color: #334155;
+        font-size: 9.5pt;
+      }
+      .pdf-report table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 10px 0 14px 0;
+        font-size: 9.5pt;
+      }
+      .pdf-report th, .pdf-report td {
+        border: 1px solid #cbd5e1;
+        padding: 6px 8px;
+        text-align: left;
+      }
+      .pdf-report th {
+        background: #f1f5f9;
+        font-weight: 600;
+      }
+      .pdf-report code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        background: #f1f5f9;
+        padding: 1px 4px;
+        border-radius: 3px;
+        font-size: 9pt;
+      }
+      .pdf-report a {
+        color: #b45309;
+        text-decoration: underline;
+      }
+      .pdf-report hr {
+        border: none;
+        border-top: 1px solid #cbd5e1;
+        margin: 16px 0;
+      }
+    </style>
+    <div class="pdf-report">${renderedHtml}</div>
+  `;
+
+  if (window.html2pdf) {
+    const options = {
+      margin: [14, 14, 16, 14],
+      filename: `heritage-constraints-brief-${timestamp}.pdf`,
+      image: { type: 'jpeg', quality: 0.98 },
+      html2canvas: { scale: 2, useCORS: true },
+      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+      pagebreak: { mode: ['avoid-all', 'css', 'legacy'] },
+    };
+    await window.html2pdf().set(options).from(wrapper).save();
+  } else {
+    window.print();
+  }
 }
 
 /**

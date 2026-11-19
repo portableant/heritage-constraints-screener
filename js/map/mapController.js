@@ -1,4 +1,5 @@
 import { normalizeAssetMeta } from '../ui/exporter.js';
+import { fetchFullFeatureGeoJSON } from '../services/arcgisClient.js';
 
 export class MapController {
   constructor(containerId, { onSiteChanged }) {
@@ -8,6 +9,7 @@ export class MapController {
     this.drawCoords = [];
     this.isLoaded = false;
     this.pendingSite = null;
+    this.assetLookup = new Map();
     this.popup = new maplibregl.Popup({ closeButton: true, closeOnClick: true });
 
     this.map = new maplibregl.Map({
@@ -19,7 +21,8 @@ export class MapController {
             type: 'raster',
             tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
             tileSize: 256,
-            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+            attribution:
+              '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
           },
         },
         layers: [{ id: 'osm-base', type: 'raster', source: 'osm' }],
@@ -49,6 +52,7 @@ export class MapController {
 
     this.map.addSource('buffer-src', { type: 'geojson', data: empty });
     this.map.addSource('assets-src', { type: 'geojson', data: empty });
+    this.map.addSource('selected-asset-src', { type: 'geojson', data: empty });
     this.map.addSource('site-src', { type: 'geojson', data: empty });
     this.map.addSource('draw-src', { type: 'geojson', data: empty });
 
@@ -72,25 +76,60 @@ export class MapController {
       type: 'fill',
       source: 'assets-src',
       filter: ['in', ['geometry-type'], ['literal', ['Polygon', 'MultiPolygon']]],
-      paint: { 'fill-color': ['get', '_color'], 'fill-opacity': 0.3 },
+      paint: { 'fill-color': ['get', '_color'], 'fill-opacity': 0.25 },
     });
     this.map.addLayer({
       id: 'assets-outline',
       type: 'line',
       source: 'assets-src',
       filter: ['in', ['geometry-type'], ['literal', ['Polygon', 'MultiPolygon']]],
-      paint: { 'line-color': ['get', '_color'], 'line-width': 1.75 },
+      paint: { 'line-color': ['get', '_color'], 'line-width': 1.5 },
     });
     this.map.addLayer({
       id: 'assets-points',
       type: 'circle',
       source: 'assets-src',
-      filter: ['==', ['geometry-type'], 'Point'],
+      filter: ['in', ['geometry-type'], ['literal', ['Point', 'MultiPoint']]],
       paint: {
         'circle-radius': 6,
         'circle-color': ['get', '_color'],
         'circle-stroke-width': 1.5,
         'circle-stroke-color': '#ffffff',
+      },
+    });
+
+    // Highlighted / Selected Heritage Asset (on card or map click)
+    this.map.addLayer({
+      id: 'selected-asset-fill',
+      type: 'fill',
+      source: 'selected-asset-src',
+      filter: ['in', ['geometry-type'], ['literal', ['Polygon', 'MultiPolygon']]],
+      paint: { 'fill-color': '#facc15', 'fill-opacity': 0.35 },
+    });
+    this.map.addLayer({
+      id: 'selected-asset-casing',
+      type: 'line',
+      source: 'selected-asset-src',
+      filter: ['in', ['geometry-type'], ['literal', ['Polygon', 'MultiPolygon']]],
+      paint: { 'line-color': '#0f172a', 'line-width': 5 },
+    });
+    this.map.addLayer({
+      id: 'selected-asset-outline',
+      type: 'line',
+      source: 'selected-asset-src',
+      filter: ['in', ['geometry-type'], ['literal', ['Polygon', 'MultiPolygon']]],
+      paint: { 'line-color': '#facc15', 'line-width': 2.5 },
+    });
+    this.map.addLayer({
+      id: 'selected-asset-point',
+      type: 'circle',
+      source: 'selected-asset-src',
+      filter: ['in', ['geometry-type'], ['literal', ['Point', 'MultiPoint']]],
+      paint: {
+        'circle-radius': 10,
+        'circle-color': '#facc15',
+        'circle-stroke-width': 2.5,
+        'circle-stroke-color': '#0f172a',
       },
     });
 
@@ -132,7 +171,7 @@ export class MapController {
   }
 
   _bindMapEvents() {
-    this.map.on('click', (e) => {
+    this.map.on('click', async (e) => {
       if (this.isDrawing) {
         this.drawCoords.push([e.lngLat.lng, e.lngLat.lat]);
         this._updateDrawPreview();
@@ -143,7 +182,14 @@ export class MapController {
         layers: ['assets-fill', 'assets-points'],
       });
       if (hit.length > 0) {
-        this._showAssetPopup(hit[0], e.lngLat);
+        const uid = hit[0].properties?._uid;
+        const cachedFeature = (uid && this.assetLookup.get(uid)) || hit[0];
+        this._highlightAsset(cachedFeature);
+        this._showAssetPopup(cachedFeature, e.lngLat);
+
+        const fullFeature = await fetchFullFeatureGeoJSON(cachedFeature);
+        if (uid) this.assetLookup.set(uid, fullFeature);
+        this._highlightAsset(fullFeature);
         return;
       }
 
@@ -202,6 +248,11 @@ export class MapController {
       return;
     }
 
+    this.map.getSource('selected-asset-src')?.setData({
+      type: 'FeatureCollection',
+      features: [],
+    });
+
     const { fly = false, zoom = 15 } = options;
     this.map.getSource('site-src')?.setData({
       type: 'FeatureCollection',
@@ -219,13 +270,25 @@ export class MapController {
   renderResults(bufferedFeature, assets) {
     if (!this.isLoaded) return;
 
+    this.assetLookup.clear();
+    const indexedAssets = (assets || []).map((feat, i) => {
+      const uid = `${feat.properties._layerId}-${feat.properties.OBJECTID ?? i}`;
+      feat.properties._uid = uid;
+      this.assetLookup.set(uid, feat);
+      return feat;
+    });
+
+    this.map.getSource('selected-asset-src')?.setData({
+      type: 'FeatureCollection',
+      features: [],
+    });
     this.map.getSource('buffer-src')?.setData({
       type: 'FeatureCollection',
       features: bufferedFeature ? [bufferedFeature] : [],
     });
     this.map.getSource('assets-src')?.setData({
       type: 'FeatureCollection',
-      features: assets || [],
+      features: indexedAssets,
     });
 
     if (bufferedFeature) {
@@ -234,10 +297,34 @@ export class MapController {
     }
   }
 
-  focusAsset(feature) {
+  _highlightAsset(feature) {
+    this.map.getSource('selected-asset-src')?.setData({
+      type: 'FeatureCollection',
+      features: feature ? [feature] : [],
+    });
+  }
+
+  async focusAsset(feature) {
+    if (!this.isLoaded || !feature) return;
+
+    // Immediately show cached geometry and zoom to it
+    this._highlightAsset(feature);
+
     const [lng, lat] = turf.centroid(feature).geometry.coordinates;
-    this.map.flyTo({ center: [lng, lat], zoom: 17 });
+    if (feature.geometry.type === 'Polygon' || feature.geometry.type === 'MultiPolygon') {
+      const bbox = turf.bbox(feature);
+      this.map.fitBounds(bbox, { padding: 80, maxZoom: 18 });
+    } else {
+      this.map.flyTo({ center: [lng, lat], zoom: 17 });
+    }
+
     this._showAssetPopup(feature, { lng, lat });
+
+    // Fetch full-resolution GeoJSON feature directly from Historic England server
+    const fullFeature = await fetchFullFeatureGeoJSON(feature);
+    const uid = feature.properties?._uid;
+    if (uid) this.assetLookup.set(uid, fullFeature);
+    this._highlightAsset(fullFeature);
   }
 
   _showAssetPopup(feature, lngLat) {

@@ -4,7 +4,7 @@ import { geocodeQuery } from './services/geocoder.js';
 import { evaluateConstraints } from './analysis/spatialEngine.js';
 import { MapController } from './map/mapController.js';
 import { ResultsView } from './ui/resultsView.js';
-import { downloadMarkdown, downloadGeoJSON } from './ui/exporter.js';
+import { downloadMarkdown, downloadPDF, downloadGeoJSON } from './ui/exporter.js';
 
 const state = {
   siteFeature: null,
@@ -22,6 +22,7 @@ const map = new MapController('map', {
 const resultsView = new ResultsView('results-container', {
   onSelectAsset: (feature) => map.focusAsset(feature),
   onExportMarkdown: () => downloadMarkdown(state),
+  onExportPDF: () => downloadPDF(state),
   onExportGeoJSON: () => downloadGeoJSON(state),
 });
 

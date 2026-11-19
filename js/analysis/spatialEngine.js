@@ -1,5 +1,10 @@
 export function evaluateConstraints(siteFeature, candidateFeatures, maxRadiusMeters) {
-  const enriched = candidateFeatures
+  if (!siteFeature?.geometry) {
+    return { assets: [], sensitivity: classifySensitivity([]) };
+  }
+
+  const enriched = (candidateFeatures || [])
+    .filter((feature) => Boolean(feature?.geometry))
     .map((feature) => {
       const distanceMeters = computeEdgeDistance(siteFeature, feature);
       return {
@@ -11,7 +16,7 @@ export function evaluateConstraints(siteFeature, candidateFeatures, maxRadiusMet
         },
       };
     })
-    .filter((f) => f.properties._distanceMeters <= maxRadiusMeters)
+    .filter((f) => Number.isFinite(f.properties._distanceMeters) && f.properties._distanceMeters <= maxRadiusMeters)
     .sort((a, b) => a.properties._distanceMeters - b.properties._distanceMeters);
 
   return {
@@ -21,27 +26,66 @@ export function evaluateConstraints(siteFeature, candidateFeatures, maxRadiusMet
 }
 
 export function computeEdgeDistance(site, target) {
-  if (turf.booleanIntersects(site, target)) return 0;
+  if (!site?.geometry || !target?.geometry) return Infinity;
 
-  const siteLine = turf.polygonToLine(site.geometry.type === 'Point'
-    ? turf.buffer(site, 0.001, { units: 'kilometers' })
-    : site);
-
-  const targetGeom = target.geometry.type === 'Point'
-    ? target
-    : turf.polygonToLine(target);
-
-  // Convert both to point/line representations for accurate boundary-to-boundary distance
-  if (targetGeom.geometry.type === 'Point') {
-    return turf.pointToLineDistance(targetGeom, siteLine, { units: 'meters' });
+  try {
+    if (turf.booleanIntersects(site, target)) return 0;
+  } catch {
+    // Fall through to coordinate/line distance if complex topology check fails
   }
 
+  const siteBoundary =
+    site.geometry.type === 'Point' || site.geometry.type === 'MultiPoint'
+      ? turf.polygonToLine(turf.buffer(site, 0.001, { units: 'kilometers' }))
+      : turf.polygonToLine(site);
+
+  // If target is Point or MultiPoint, measure directly to site boundary
+  if (target.geometry.type === 'Point' || target.geometry.type === 'MultiPoint') {
+    let minMeters = Infinity;
+    turf.coordEach(target, (coord) => {
+      const d = minDistanceToLines(turf.point(coord), siteBoundary);
+      if (d < minMeters) minMeters = d;
+    });
+    return minMeters;
+  }
+
+  // Target is Polygon or MultiPolygon: measure boundary vertices against site boundary
+  const targetLines = turf.polygonToLine(target);
   let minMeters = Infinity;
-  turf.coordEach(targetGeom, (coord) => {
-    const d = turf.pointToLineDistance(turf.point(coord), siteLine, { units: 'meters' });
+
+  turf.coordEach(targetLines, (coord) => {
+    const d = minDistanceToLines(turf.point(coord), siteBoundary);
     if (d < minMeters) minMeters = d;
   });
+
+  // Also check site vertices against target boundary in case target has long straight edges
+  turf.coordEach(siteBoundary, (coord) => {
+    const d = minDistanceToLines(turf.point(coord), targetLines);
+    if (d < minMeters) minMeters = d;
+  });
+
   return minMeters;
+}
+
+/**
+ * Safely computes point-to-line distance whether `lineOrCollection`
+ * is a LineString/MultiLineString Feature or a FeatureCollection (from MultiPolygon).
+ */
+function minDistanceToLines(pt, lineOrCollection) {
+  if (!lineOrCollection) return Infinity;
+
+  if (lineOrCollection.type === 'FeatureCollection') {
+    let min = Infinity;
+    for (const feat of lineOrCollection.features || []) {
+      if (!feat?.geometry) continue;
+      const d = turf.pointToLineDistance(pt, feat, { units: 'meters' });
+      if (d < min) min = d;
+    }
+    return min;
+  }
+
+  if (!lineOrCollection.geometry) return Infinity;
+  return turf.pointToLineDistance(pt, lineOrCollection, { units: 'meters' });
 }
 
 function classifySensitivity(assets) {
