@@ -6,15 +6,17 @@ class MapLegendControl {
   constructor(onToggleCategories) {
     this.onToggleCategories = onToggleCategories;
     this.enabledCategories = new Set();
+    this._userToggled = false;
   }
 
   onAdd(map) {
     this._map = map;
-    this._collapsed = false;
+    this._mobileQuery = window.matchMedia('(max-width: 767px)');
+    this._collapsed = this._mobileQuery.matches;
 
     this._container = document.createElement('div');
     this._container.className =
-      'maplibregl-ctrl bg-white/95 backdrop-blur-xs border border-slate-200 rounded-lg shadow-md text-xs text-slate-800 p-2.5 max-w-[235px] select-none';
+      'maplibregl-ctrl bg-white/95 backdrop-blur-xs border border-slate-200 rounded-lg shadow-md text-xs text-slate-800 p-2 sm:p-2.5 max-w-[215px] sm:max-w-[235px] select-none';
 
     const uniqueCategories = [];
     const seen = new Set();
@@ -42,12 +44,12 @@ class MapLegendControl {
 
     this._container.innerHTML = `
       <div class="flex items-center justify-between gap-3">
-        <span class="font-semibold text-[11px] uppercase tracking-wider text-slate-600">Map Key &amp; Layers</span>
-        <button type="button" id="legend-toggle-btn" class="text-[11px] text-slate-500 hover:text-slate-900 font-medium">
-          Hide
+        <span class="font-semibold text-[11px] uppercase tracking-wider text-slate-600">Map Key</span>
+        <button type="button" id="legend-toggle-btn" aria-expanded="${!this._collapsed}" class="text-[11px] text-amber-700 hover:text-amber-900 font-semibold">
+          ${this._collapsed ? 'Show' : 'Hide'}
         </button>
       </div>
-      <div id="legend-body" class="mt-2 space-y-2">
+      <div id="legend-body" class="${this._collapsed ? 'hidden ' : ''}mt-2 space-y-2 max-h-[45vh] overflow-y-auto">
         <div class="space-y-0.5">
           ${categoryRows}
         </div>
@@ -81,11 +83,25 @@ class MapLegendControl {
 
     const toggleBtn = this._container.querySelector('#legend-toggle-btn');
     const body = this._container.querySelector('#legend-body');
+
+    const applyCollapsedState = (collapsed) => {
+      this._collapsed = collapsed;
+      body.classList.toggle('hidden', collapsed);
+      toggleBtn.textContent = collapsed ? 'Show' : 'Hide';
+      toggleBtn.setAttribute('aria-expanded', String(!collapsed));
+    };
+
     toggleBtn?.addEventListener('click', () => {
-      this._collapsed = !this._collapsed;
-      body.classList.toggle('hidden', this._collapsed);
-      toggleBtn.textContent = this._collapsed ? 'Show' : 'Hide';
+      this._userToggled = true;
+      applyCollapsedState(!this._collapsed);
     });
+
+    this._onBreakpointChange = (e) => {
+      if (!this._userToggled) {
+        applyCollapsedState(e.matches);
+      }
+    };
+    this._mobileQuery.addEventListener('change', this._onBreakpointChange);
 
     this._container.querySelectorAll('input[data-legend-cat]').forEach((cb) => {
       cb.addEventListener('change', () => {
@@ -114,6 +130,7 @@ class MapLegendControl {
   }
 
   onRemove() {
+    this._mobileQuery?.removeEventListener('change', this._onBreakpointChange);
     this._container?.parentNode?.removeChild(this._container);
     this._map = undefined;
   }
