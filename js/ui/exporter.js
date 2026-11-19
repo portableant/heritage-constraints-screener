@@ -172,6 +172,8 @@ export function buildMarkdownBrief(state) {
     ``,
     `| Category | Total Within ${bufferMeters} m | Intersecting Site | Nearest Distance |`,
     `| :--- | :---: | :---: | :---: |`,
+    `- **Setting & Significance:** Spatial proximity does not equate to harm. Assessment of setting impacts must follow *Historic Environment Good Practice Advice in Planning Note 3 (The Setting of Heritage Assets)* and NPPF Chapter 16.`,
+    `- **Screening Tool:** Generated via [Heritage Constraints Screener](https://github.com/portableant/heritage-constraints-screener) (open-source client-side GIS screening utility).`
   ].filter((line) => line !== null);
 
   const grouped = new Map();
