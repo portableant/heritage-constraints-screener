@@ -31,6 +31,10 @@ function formatArcGISDate(rawDate) {
  * Normalizes disparate Historic England, Heritage at Risk, and ADS
  * attribute schemas into consistent display fields for popups, cards, and exports.
  */
+/**
+ * Normalizes disparate Historic England, Heritage at Risk, and ADS
+ * attribute schemas into consistent display fields for popups, cards, and exports.
+ */
 export function normalizeAssetMeta(feature) {
   const p = feature.properties || {};
   const isResearchReport =
@@ -39,9 +43,16 @@ export function normalizeAssetMeta(feature) {
     Boolean(p.Report_Num || p.Report_title);
   const isHeritageAtRisk =
     p._category === 'Heritage at Risk' ||
-    Boolean(p.Condition || p.Vulnerability || p.PriorityCategory);
+    Boolean(p.Condition || p.CurrentCondition || p.Vulnerability || p.PriorityCategory);
 
   const name =
+    p.BuildingName ||
+    p.BUILDINGNAME ||
+    p.Building_Name ||
+    p.MonumentName ||
+    p.MONUMENTNAME ||
+    p.EntryName ||
+    p.ENTRYNAME ||
     p.Name ||
     p.NAME ||
     p.SiteName ||
@@ -56,6 +67,8 @@ export function normalizeAssetMeta(feature) {
     p.ListEntry ||
     p.LISTENTRY ||
     p.HAR_ID ||
+    p.HARId ||
+    p.EntryNumber ||
     p.Report_Num ||
     p.UID ||
     p.REPORT_NO ||
@@ -82,10 +95,11 @@ export function normalizeAssetMeta(feature) {
   const sizeMb = p.Size_in_MB ? String(p.Size_in_MB).trim() : null;
 
   // Enhanced Heritage at Risk metadata
-  const condition = p.Condition || p.CONDITION || null;
-  const occupancy = p.Occupancy || p.OCCUPANCY || null;
+  const condition = p.Condition || p.CONDITION || p.CurrentCondition || null;
+  const occupancy = p.Occupancy || p.OCCUPANCY || p.OccupancyOrUse || null;
   const vulnerability = p.Vulnerability || p.VULNERABILITY || null;
-  const priorityCategory = p.PriorityCategory || p.Priority || p.PRIORITY || null;
+  const priorityCategory =
+    p.PriorityCategory || p.PRIORITYCATEGORY || p.Priority || p.PRIORITY || null;
 
   // Enhanced NHLE / Conservation Area metadata
   const listDate = formatArcGISDate(p.ListDate || p.LISTDATE || p.DesignationDate);
