@@ -80,15 +80,29 @@ function startIntroTour() {
       position: 'bottom',
     },
     {
-      title: '4. Interactive Open Data Map',
+      element: '#sample-select',
+      title: '4. Explore Sample Heritage Sites',
       intro:
-        'Click anywhere on the map to drop a site pin, or click any colored polygon or marker to inspect its designation details and boundary.',
+        'Jump straight to pre-loaded case studies—such as Berkhamsted Castle, Stonehenge, Bath Spa Core, or Housesteads Fort—to see complex designations in action.',
+      position: 'bottom',
+    },
+    {
+      title: '5. Interactive Map & Asset Inspection',
+      intro:
+        'Click anywhere on the map to drop a site pin, or click any colored polygon or marker to inspect its designation record and generate a sightline height profile.',
+    },
+    {
+      element: '.maplibregl-ctrl-bottom-right',
+      title: '6. Toggle Map Key & Layers',
+      intro:
+        'Open the Map Key to toggle individual Historic England layers, Listed Building grades (I, II*, II), and ADS grey literature on or off.',
+      position: 'top',
     },
     {
       element: '#results-pane',
-      title: '5. Sensitivity Summary & Exports',
+      title: '7. Height Charts, Summary & Exports',
       intro:
-        'Review live Historic England designations, Heritage at Risk entries, local HER contacts, and ADS grey literature—then export a brief as PDF, Markdown, or GeoJSON.',
+        'Selecting an asset opens its terrain elevation & sightline height chart alongside designation details—and you can export the full brief as PDF, Markdown, or GeoJSON.',
       position: isCompact ? 'top' : 'left',
     },
   ];
@@ -100,19 +114,43 @@ function startIntroTour() {
     return el && el.offsetParent !== null;
   });
 
-  window
-    .introJs()
-    .setOptions({
-      steps: visibleSteps,
-      showProgress: true,
-      showBullets: false,
-      scrollToElement: false,
-      exitOnOverlayClick: true,
-      nextLabel: 'Next →',
-      prevLabel: '← Back',
-      doneLabel: 'Finish',
-    })
-    .start();
+  const activateFirstResultCard = () => {
+    const firstCard = document.querySelector('#results-container [data-idx="0"]');
+    if (firstCard) {
+      firstCard.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      firstCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      return true;
+    }
+
+    const firstAsset = state.results?.assets?.[0];
+    if (firstAsset && state.siteFeature) {
+      map.focusAsset(firstAsset);
+      resultsView?.showTerrainProfile(state.siteFeature, firstAsset);
+      return true;
+    }
+    return false;
+  };
+
+  const tour = window.introJs().setOptions({
+    steps: visibleSteps,
+    showProgress: true,
+    showBullets: false,
+    scrollToElement: false,
+    exitOnOverlayClick: true,
+    nextLabel: 'Next →',
+    prevLabel: '← Back',
+    doneLabel: 'Finish',
+  });
+
+  tour.onafterchange(function (targetElement) {
+    if (targetElement?.id !== 'results-pane') return;
+
+    if (!activateFirstResultCard()) {
+      setTimeout(activateFirstResultCard, 400);
+    }
+  });
+
+  tour.start();
 }
 
 function initFirstUseModal() {
