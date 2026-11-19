@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Heritage Impact & Constraints Screener | Historic England Open Data</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" />
+  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+  <script src="https://unpkg.com/@turf/turf@7.1.0/turf.min.js"></script>
+  <link rel="stylesheet" href="./css/styles.css" />
+</head>
+<body class="bg-slate-50 text-slate-900 h-screen flex flex-col overflow-hidden">
+  <!-- Header, Search Bar, Buffer Selector, Map Container & Results Drawer -->
+  <!-- (Same DOM IDs as before so modules bind cleanly) -->
+  <div id="app" class="flex-1 flex flex-col lg:flex-row overflow-hidden">
+    <main class="relative flex-1 h-1/2 lg:h-full">
+      <div id="map" class="w-full h-full"></div>
+    </main>
+    <aside id="results-panel" class="w-full lg:w-[460px] bg-white border-l border-slate-200 flex flex-col h-1/2 lg:h-full overflow-hidden">
+      <div id="results-container" class="flex-1 overflow-y-auto p-4 space-y-4"></div>
+    </aside>
+  </div>
+
+  <script type="module" src="./js/main.js"></script>
+</body>
+</html>
