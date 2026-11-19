@@ -1,138 +1,266 @@
-import { normalizeAssetMeta } from './exporter.js';
+import { normalizeAssetMeta } from '../ui/exporter.js';
 
-export class ResultsView {
-  constructor(containerId, { onSelectAsset, onExportMarkdown, onExportGeoJSON }) {
-    this.container = document.getElementById(containerId);
-    this.onSelectAsset = onSelectAsset;
-    this.onExportMarkdown = onExportMarkdown;
-    this.onExportGeoJSON = onExportGeoJSON;
-    this.activeFilter = 'ALL';
-    this.lastState = null;
+export class MapController {
+  constructor(containerId, { onSiteChanged }) {
+    this.containerId = containerId;
+    this.onSiteChanged = onSiteChanged;
+    this.isDrawing = false;
+    this.drawCoords = [];
+    this.isLoaded = false;
+    this.pendingSite = null;
+    this.popup = new maplibregl.Popup({ closeButton: true, closeOnClick: true });
+
+    this.map = new maplibregl.Map({
+      container: containerId,
+      style: {
+        version: 8,
+        sources: {
+          osm: {
+            type: 'raster',
+            tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+            tileSize: 256,
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+          },
+        },
+        layers: [{ id: 'osm-base', type: 'raster', source: 'osm' }],
+      },
+      center: [-1.45, 52.35],
+      zoom: 6,
+    });
+
+    this.map.addControl(new maplibregl.NavigationControl(), 'top-right');
+    this.map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-left');
+
+    this.map.on('load', () => {
+      this.isLoaded = true;
+      this._initSourcesAndLayers();
+      this._bindMapEvents();
+
+      if (this.pendingSite) {
+        const { feature, options } = this.pendingSite;
+        this.pendingSite = null;
+        this.setSite(feature, options);
+      }
+    });
   }
 
-  setLoading(isLoading) {
-    if (!isLoading || !this.container) return;
-    this.container.innerHTML = `
-      <div class="flex items-center gap-3 p-4 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-900">
-        <div class="w-4 h-4 border-2 border-amber-600 border-t-transparent rounded-full animate-spin"></div>
-        <span>Querying Historic England FeatureServers...</span>
-      </div>
-    `;
+  _initSourcesAndLayers() {
+    const empty = { type: 'FeatureCollection', features: [] };
+
+    this.map.addSource('buffer-src', { type: 'geojson', data: empty });
+    this.map.addSource('assets-src', { type: 'geojson', data: empty });
+    this.map.addSource('site-src', { type: 'geojson', data: empty });
+    this.map.addSource('draw-src', { type: 'geojson', data: empty });
+
+    // Search buffer ring
+    this.map.addLayer({
+      id: 'buffer-fill',
+      type: 'fill',
+      source: 'buffer-src',
+      paint: { 'fill-color': '#2563eb', 'fill-opacity': 0.1 },
+    });
+    this.map.addLayer({
+      id: 'buffer-line',
+      type: 'line',
+      source: 'buffer-src',
+      paint: { 'line-color': '#2563eb', 'line-width': 2, 'line-dasharray': [3, 2] },
+    });
+
+    // Heritage asset polygons & points
+    this.map.addLayer({
+      id: 'assets-fill',
+      type: 'fill',
+      source: 'assets-src',
+      filter: ['in', ['geometry-type'], ['literal', ['Polygon', 'MultiPolygon']]],
+      paint: { 'fill-color': ['get', '_color'], 'fill-opacity': 0.3 },
+    });
+    this.map.addLayer({
+      id: 'assets-outline',
+      type: 'line',
+      source: 'assets-src',
+      filter: ['in', ['geometry-type'], ['literal', ['Polygon', 'MultiPolygon']]],
+      paint: { 'line-color': ['get', '_color'], 'line-width': 1.75 },
+    });
+    this.map.addLayer({
+      id: 'assets-points',
+      type: 'circle',
+      source: 'assets-src',
+      filter: ['==', ['geometry-type'], 'Point'],
+      paint: {
+        'circle-radius': 6,
+        'circle-color': ['get', '_color'],
+        'circle-stroke-width': 1.5,
+        'circle-stroke-color': '#ffffff',
+      },
+    });
+
+    // Red-line site boundary / pin
+    this.map.addLayer({
+      id: 'site-fill',
+      type: 'fill',
+      source: 'site-src',
+      filter: ['in', ['geometry-type'], ['literal', ['Polygon', 'MultiPolygon']]],
+      paint: { 'fill-color': '#ef4444', 'fill-opacity': 0.22 },
+    });
+    this.map.addLayer({
+      id: 'site-line',
+      type: 'line',
+      source: 'site-src',
+      filter: ['in', ['geometry-type'], ['literal', ['Polygon', 'MultiPolygon']]],
+      paint: { 'line-color': '#dc2626', 'line-width': 2.5 },
+    });
+    this.map.addLayer({
+      id: 'site-point',
+      type: 'circle',
+      source: 'site-src',
+      filter: ['==', ['geometry-type'], 'Point'],
+      paint: {
+        'circle-radius': 8,
+        'circle-color': '#dc2626',
+        'circle-stroke-width': 2,
+        'circle-stroke-color': '#ffffff',
+      },
+    });
+
+    // Active polygon sketch preview
+    this.map.addLayer({
+      id: 'draw-line',
+      type: 'line',
+      source: 'draw-src',
+      paint: { 'line-color': '#dc2626', 'line-width': 2, 'line-dasharray': [2, 2] },
+    });
   }
 
-  render(state) {
-    this.lastState = state;
-    if (!this.container || !state?.results) return;
+  _bindMapEvents() {
+    this.map.on('click', (e) => {
+      if (this.isDrawing) {
+        this.drawCoords.push([e.lngLat.lng, e.lngLat.lat]);
+        this._updateDrawPreview();
+        return;
+      }
 
-    const { assets, sensitivity, errors = [] } = state.results;
-    const categories = ['ALL', ...new Set(assets.map((a) => a.properties._category))];
-    const filtered =
-      this.activeFilter === 'ALL'
-        ? assets
-        : assets.filter((a) => a.properties._category === this.activeFilter);
+      const hit = this.map.queryRenderedFeatures(e.point, {
+        layers: ['assets-fill', 'assets-points'],
+      });
+      if (hit.length > 0) {
+        this._showAssetPopup(hit[0], e.lngLat);
+        return;
+      }
 
-    const errorHtml = errors.length
-      ? `<div class="p-3 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-800">
-           <strong>Layer warnings:</strong> ${errors.map((e) => e.layer).join(', ')} failed to respond.
+      const pointFeature = turf.point([e.lngLat.lng, e.lngLat.lat]);
+      this.setSite(pointFeature);
+    });
+
+    this.map.on('dblclick', (e) => {
+      if (!this.isDrawing) return;
+      e.preventDefault();
+      this.finishDrawing();
+    });
+
+    ['assets-fill', 'assets-points'].forEach((layerId) => {
+      this.map.on('mouseenter', layerId, () => {
+        if (!this.isDrawing) this.map.getCanvas().style.cursor = 'pointer';
+      });
+      this.map.on('mouseleave', layerId, () => {
+        if (!this.isDrawing) this.map.getCanvas().style.cursor = '';
+      });
+    });
+  }
+
+  startDrawing() {
+    this.isDrawing = true;
+    this.drawCoords = [];
+    this.map.doubleClickZoom.disable();
+    document.getElementById(this.containerId)?.classList.add('drawing-mode');
+    document.getElementById('draw-hint')?.classList.remove('hidden');
+  }
+
+  finishDrawing() {
+    this.isDrawing = false;
+    this.map.doubleClickZoom.enable();
+    document.getElementById(this.containerId)?.classList.remove('drawing-mode');
+    document.getElementById('draw-hint')?.classList.add('hidden');
+    this.map.getSource('draw-src')?.setData({ type: 'FeatureCollection', features: [] });
+
+    if (this.drawCoords.length >= 3) {
+      const closed = [...this.drawCoords, this.drawCoords[0]];
+      const poly = turf.polygon([closed]);
+      this.setSite(poly);
+    }
+    this.drawCoords = [];
+  }
+
+  _updateDrawPreview() {
+    if (this.drawCoords.length < 2) return;
+    const line = turf.lineString(this.drawCoords);
+    this.map.getSource('draw-src')?.setData({ type: 'FeatureCollection', features: [line] });
+  }
+
+  setSite(feature, options = {}) {
+    if (!this.isLoaded) {
+      this.pendingSite = { feature, options };
+      return;
+    }
+
+    const { fly = false, zoom = 15 } = options;
+    this.map.getSource('site-src')?.setData({
+      type: 'FeatureCollection',
+      features: [feature],
+    });
+
+    if (fly) {
+      const [lng, lat] = turf.centroid(feature).geometry.coordinates;
+      this.map.flyTo({ center: [lng, lat], zoom });
+    }
+
+    this.onSiteChanged?.(feature);
+  }
+
+  renderResults(bufferedFeature, assets) {
+    if (!this.isLoaded) return;
+
+    this.map.getSource('buffer-src')?.setData({
+      type: 'FeatureCollection',
+      features: bufferedFeature ? [bufferedFeature] : [],
+    });
+    this.map.getSource('assets-src')?.setData({
+      type: 'FeatureCollection',
+      features: assets || [],
+    });
+
+    if (bufferedFeature) {
+      const bbox = turf.bbox(bufferedFeature);
+      this.map.fitBounds(bbox, { padding: 40, maxZoom: 16 });
+    }
+  }
+
+  focusAsset(feature) {
+    const [lng, lat] = turf.centroid(feature).geometry.coordinates;
+    this.map.flyTo({ center: [lng, lat], zoom: 17 });
+    this._showAssetPopup(feature, { lng, lat });
+  }
+
+  _showAssetPopup(feature, lngLat) {
+    const meta = normalizeAssetMeta(feature);
+    const dist = meta.intersects ? '0 m (Intersects)' : `${meta.distanceMeters} m`;
+    const linkLabel = meta.isResearchReport ? 'Open Research Report' : 'Open NHLE Record';
+    const linkHtml = meta.hyperlink
+      ? `<div class="pt-1">
+           <a href="${meta.hyperlink}" target="_blank" rel="noopener noreferrer" class="text-amber-700 underline font-medium">${linkLabel} &rarr;</a>
          </div>`
       : '';
 
-    const pillsHtml = categories
-      .map((cat) => {
-        const active = cat === this.activeFilter;
-        const count =
-          cat === 'ALL'
-            ? assets.length
-            : assets.filter((a) => a.properties._category === cat).length;
-        return `
-          <button
-            data-filter="${cat}"
-            class="filter-pill px-2.5 py-1 rounded-full text-xs font-medium border ${
-              active
-                ? 'bg-slate-900 text-white border-slate-900'
-                : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'
-            }"
-          >
-            ${cat} (${count})
-          </button>
-        `;
-      })
-      .join('');
-
-    const cardsHtml =
-      filtered.length === 0
-        ? `<div class="text-xs text-slate-500 p-4 border border-dashed border-slate-300 rounded-lg text-center">
-             No heritage assets found in this category within ${state.bufferMeters} m.
-           </div>`
-        : filtered
-            .map((asset, idx) => {
-              const m = normalizeAssetMeta(asset);
-              const badge = m.intersects
-                ? `<span class="px-2 py-0.5 rounded bg-red-100 text-red-800 font-semibold">0 m · Intersects</span>`
-                : `<span class="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-medium">${m.distanceMeters} m</span>`;
-
-              return `
-                <div data-idx="${idx}" class="asset-card p-3 bg-white border border-slate-200 rounded-lg hover:border-slate-400 cursor-pointer space-y-1.5">
-                  <div class="flex items-start justify-between gap-2">
-                    <div class="text-xs font-semibold text-slate-900 leading-snug">${m.name}</div>
-                    <div class="shrink-0 text-[11px]">${badge}</div>
-                  </div>
-                  <div class="flex items-center justify-between text-[11px] text-slate-500">
-                    <span>${m.category}${m.grade ? ` · <strong>${m.grade}</strong>` : ''}</span>
-                    ${
-                      m.hyperlink
-                        ? `<a href="${m.hyperlink}" target="_blank" rel="noopener" onclick="event.stopPropagation()" class="text-amber-700 hover:underline">NHLE &nearr;</a>`
-                        : ''
-                    }
-                  </div>
-                </div>
-              `;
-            })
-            .join('');
-
-    this.container.innerHTML = `
-      <div class="p-3.5 rounded-lg border ${sensitivity.badgeClass} space-y-1.5">
-        <div class="text-xs font-bold uppercase tracking-wide">${sensitivity.level}</div>
-        <p class="text-xs leading-relaxed">${sensitivity.summary}</p>
-      </div>
-
-      <div class="flex flex-wrap gap-2 no-print">
-        <button id="btn-export-md" class="flex-1 bg-slate-900 hover:bg-slate-800 text-white text-xs font-medium py-2 px-3 rounded">
-          Download Markdown Brief
-        </button>
-        <button id="btn-export-geojson" class="flex-1 bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 text-xs font-medium py-2 px-3 rounded">
-          Download GeoJSON
-        </button>
-      </div>
-
-      ${errorHtml}
-
-      <div class="flex flex-wrap gap-1.5 no-print">${pillsHtml}</div>
-
-      <div class="space-y-2">${cardsHtml}</div>
-    `;
-
-    this.container.querySelector('#btn-export-md')?.addEventListener('click', () => {
-      this.onExportMarkdown?.();
-    });
-    this.container.querySelector('#btn-export-geojson')?.addEventListener('click', () => {
-      this.onExportGeoJSON?.();
-    });
-
-    this.container.querySelectorAll('.filter-pill').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        this.activeFilter = btn.dataset.filter;
-        this.render(this.lastState);
-      });
-    });
-
-    this.container.querySelectorAll('.asset-card').forEach((card) => {
-      card.addEventListener('click', () => {
-        this.container.querySelectorAll('.asset-card').forEach((c) => c.classList.remove('is-selected'));
-        card.classList.add('is-selected');
-        const item = filtered[Number(card.dataset.idx)];
-        if (item) this.onSelectAsset?.(item);
-      });
-    });
+    this.popup
+      .setLngLat(lngLat)
+      .setHTML(`
+        <div class="text-xs space-y-1">
+          <div class="font-semibold text-slate-900 leading-snug">${meta.name}</div>
+          <div class="text-slate-600">${meta.category}${meta.listEntry !== 'N/A' ? ` · ${meta.listEntry}` : ''}</div>
+          ${meta.subtitle ? `<div class="text-[11px] text-slate-500">${meta.subtitle}</div>` : ''}
+          <div class="text-slate-700">Distance: <strong>${dist}</strong></div>
+          ${linkHtml}
+        </div>
+      `)
+      .addTo(this.map);
   }
 }

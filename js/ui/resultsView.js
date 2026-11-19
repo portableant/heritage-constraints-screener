@@ -14,7 +14,7 @@ export class ResultsView {
     if (!isLoading || !this.container) return;
     this.container.innerHTML = `
       <div class="flex items-center gap-3 p-4 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-900">
-        <div class="w-4 h-4 border-2 border-amber-600 border-t-transparent rounded-full animate-spin"></div>
+        <div class="w-4 h-4 border-2 border-amber-600 border-t-transparent rounded-full animate-spin shrink-0"></div>
         <span>Querying Historic England FeatureServers...</span>
       </div>
     `;
@@ -26,6 +26,12 @@ export class ResultsView {
 
     const { assets, sensitivity, errors = [] } = state.results;
     const categories = ['ALL', ...new Set(assets.map((a) => a.properties._category))];
+
+    // Reset filter if the active category has no items in the new result set
+    if (this.activeFilter !== 'ALL' && !categories.includes(this.activeFilter)) {
+      this.activeFilter = 'ALL';
+    }
+
     const filtered =
       this.activeFilter === 'ALL'
         ? assets
@@ -33,7 +39,7 @@ export class ResultsView {
 
     const errorHtml = errors.length
       ? `<div class="p-3 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-800">
-           <strong>Layer warnings:</strong> ${errors.map((e) => e.layer).join(', ')} failed to respond.
+           <strong>Layer warnings:</strong> ${errors.map((e) => `${e.layer} (${e.message})`).join('; ')}.
          </div>`
       : '';
 
@@ -47,7 +53,7 @@ export class ResultsView {
         return `
           <button
             data-filter="${cat}"
-            class="filter-pill px-2.5 py-1 rounded-full text-xs font-medium border ${
+            class="filter-pill px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
               active
                 ? 'bg-slate-900 text-white border-slate-900'
                 : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'
@@ -67,21 +73,66 @@ export class ResultsView {
         : filtered
             .map((asset, idx) => {
               const m = normalizeAssetMeta(asset);
+              const color = asset.properties._color || '#64748b';
               const badge = m.intersects
                 ? `<span class="px-2 py-0.5 rounded bg-red-100 text-red-800 font-semibold">0 m · Intersects</span>`
                 : `<span class="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-medium">${m.distanceMeters} m</span>`;
 
+              const idTag =
+                m.listEntry !== 'N/A'
+                  ? `<span class="font-mono text-[10px] text-slate-500">${m.isResearchReport ? 'Rep.' : 'ID'} ${m.listEntry}</span>`
+                  : '';
+
+              const linkText = m.isResearchReport ? 'Report PDF ↗' : 'NHLE ↗';
+              const fileSpecTag = m.fileSpec
+                ? `<span class="text-[10px] text-slate-400">(${m.fileSpec})</span>`
+                : '';
+
               return `
-                <div data-idx="${idx}" class="asset-card p-3 bg-white border border-slate-200 rounded-lg hover:border-slate-400 cursor-pointer space-y-1.5">
+                <div
+                  data-idx="${idx}"
+                  class="asset-card p-3 bg-white border border-slate-200 rounded-lg hover:border-slate-400 cursor-pointer space-y-1.5"
+                >
                   <div class="flex items-start justify-between gap-2">
-                    <div class="text-xs font-semibold text-slate-900 leading-snug">${m.name}</div>
+                    <div class="flex items-start gap-2 min-w-0">
+                      <span
+                        class="inline-block w-2.5 h-2.5 rounded-full mt-1 shrink-0"
+                        style="background-color: ${color};"
+                      ></span>
+                      <div class="text-xs font-semibold text-slate-900 leading-snug break-words">
+                        ${m.name}
+                      </div>
+                    </div>
                     <div class="shrink-0 text-[11px]">${badge}</div>
                   </div>
-                  <div class="flex items-center justify-between text-[11px] text-slate-500">
-                    <span>${m.category}${m.grade ? ` · <strong>${m.grade}</strong>` : ''}</span>
+
+                  ${
+                    m.subtitle
+                      ? `<div class="text-[11px] text-slate-600 pl-4">${m.subtitle}</div>`
+                      : ''
+                  }
+
+                  ${
+                    m.description
+                      ? `<p class="text-[11px] text-slate-500 pl-4 leading-relaxed line-clamp-2">${m.description}</p>`
+                      : ''
+                  }
+
+                  <div class="flex items-center justify-between gap-2 pt-1 pl-4 text-[11px] text-slate-500">
+                    <div class="flex items-center gap-2 truncate">
+                      <span>${m.category}</span>
+                      ${idTag}
+                      ${fileSpecTag}
+                    </div>
                     ${
                       m.hyperlink
-                        ? `<a href="${m.hyperlink}" target="_blank" rel="noopener" onclick="event.stopPropagation()" class="text-amber-700 hover:underline">NHLE &nearr;</a>`
+                        ? `<a
+                             href="${m.hyperlink}"
+                             target="_blank"
+                             rel="noopener noreferrer"
+                             onclick="event.stopPropagation()"
+                             class="text-amber-700 hover:text-amber-800 hover:underline font-medium shrink-0"
+                           >${linkText}</a>`
                         : ''
                     }
                   </div>
@@ -97,10 +148,10 @@ export class ResultsView {
       </div>
 
       <div class="flex flex-wrap gap-2 no-print">
-        <button id="btn-export-md" class="flex-1 bg-slate-900 hover:bg-slate-800 text-white text-xs font-medium py-2 px-3 rounded">
+        <button id="btn-export-md" class="flex-1 bg-slate-900 hover:bg-slate-800 text-white text-xs font-medium py-2 px-3 rounded transition-colors">
           Download Markdown Brief
         </button>
-        <button id="btn-export-geojson" class="flex-1 bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 text-xs font-medium py-2 px-3 rounded">
+        <button id="btn-export-geojson" class="flex-1 bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 text-xs font-medium py-2 px-3 rounded transition-colors">
           Download GeoJSON
         </button>
       </div>
@@ -128,7 +179,9 @@ export class ResultsView {
 
     this.container.querySelectorAll('.asset-card').forEach((card) => {
       card.addEventListener('click', () => {
-        this.container.querySelectorAll('.asset-card').forEach((c) => c.classList.remove('is-selected'));
+        this.container
+          .querySelectorAll('.asset-card')
+          .forEach((c) => c.classList.remove('is-selected'));
         card.classList.add('is-selected');
         const item = filtered[Number(card.dataset.idx)];
         if (item) this.onSelectAsset?.(item);

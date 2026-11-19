@@ -48,12 +48,12 @@ export const HERITAGE_LAYERS = [
     color: '#0284c7',
     isPolygon: true,
   },
-  {
+ {
     id: 'research-reports',
     category: 'HE Research Reports',
-    url: `${HE_ARCGIS_BASE}/Historic_England_Research_Spatial_Reports/FeatureServer/0`,
+    url: `${HE_ARCGIS_BASE}/Historic_England_Research_Spatial_Reports/FeatureServer/475`,
     color: '#475569',
-    isPolygon: true,
+    isPolygon: false,
   },
 ];
 
