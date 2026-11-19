@@ -22,7 +22,7 @@ class MapLegendControl {
 
     this._container = document.createElement('div');
     this._container.className =
-      'maplibregl-ctrl bg-white/95 backdrop-blur-xs border border-slate-200 rounded-lg shadow-md text-xs text-slate-800 p-2 lg:p-2.5 max-w-[215px] lg:max-w-[235px] select-none';
+      'maplibregl-ctrl bg-white/95 backdrop-blur-xs border border-slate-200 rounded-lg shadow-md text-xs text-slate-800 p-2 lg:p-2.5 w-[210px] sm:w-[230px] select-none';
 
     const uniqueCategories = [];
     const seen = new Set();
@@ -39,9 +39,9 @@ class MapLegendControl {
     const categoryRows = uniqueCategories
       .map(
         ({ category, color }) => `
-          <label class="flex items-center gap-2 cursor-pointer hover:bg-slate-50 rounded px-1 py-0.5">
-            <input type="checkbox" data-legend-cat="${category}" checked class="rounded border-slate-300 text-slate-900 focus:ring-0" />
-            <span class="inline-block w-2.5 h-2.5 rounded-full shrink-0 border border-white shadow-2xs" style="background-color: ${color};"></span>
+          <label class="flex items-center gap-1.5 cursor-pointer hover:bg-slate-50 rounded px-1 py-0.5 leading-tight">
+            <input type="checkbox" data-legend-cat="${category}" checked class="h-3 w-3 rounded border-slate-300 text-slate-900 focus:ring-0 shrink-0" />
+            <span class="inline-block w-2 h-2 rounded-full shrink-0 border border-white shadow-2xs" style="background-color: ${color};"></span>
             <span class="truncate text-[11px] text-slate-700">${category}</span>
           </label>
         `
@@ -49,40 +49,41 @@ class MapLegendControl {
       .join('');
 
     this._container.innerHTML = `
-      <div class="flex items-center justify-between gap-3">
+      <div class="flex items-center justify-between gap-2">
         <span class="font-semibold text-[11px] uppercase tracking-wider text-slate-600">Map Key</span>
-        <button type="button" id="legend-toggle-btn" aria-expanded="${!this._collapsed}" class="text-[11px] text-amber-700 hover:text-amber-900 font-semibold">
+        <button type="button" id="legend-toggle-btn" aria-expanded="${!this._collapsed}" class="text-[11px] text-amber-700 hover:text-amber-900 font-semibold px-1">
           ${this._collapsed ? 'Show' : 'Hide'}
         </button>
       </div>
-      <div id="legend-body" class="mt-2 space-y-2 max-h-[45vh] overflow-y-auto" style="display: ${this._collapsed ? 'none' : 'block'};">
+      <div
+        id="legend-body"
+        class="mt-1.5 space-y-1.5 overflow-y-auto overscroll-contain pr-0.5"
+        style="display: ${this._collapsed ? 'none' : 'block'}; max-height: min(260px, 36svh);"
+      >
         <div class="space-y-0.5">
           ${categoryRows}
         </div>
-        <div class="pt-1.5 border-t border-slate-200 space-y-1">
-          <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Listed Building Grades</div>
-          <div class="flex items-center gap-2">
-            <span class="inline-block w-2.5 h-2.5 rounded-full shrink-0" style="background-color: #9333ea;"></span>
-            <span class="text-[11px] text-slate-700">Grade I</span>
-          </div>
-          <div class="flex items-center gap-2">
-            <span class="inline-block w-2.5 h-2.5 rounded-full shrink-0" style="background-color: #ea580c;"></span>
-            <span class="text-[11px] text-slate-700">Grade II*</span>
-          </div>
-          <div class="flex items-center gap-2">
-            <span class="inline-block w-2.5 h-2.5 rounded-full shrink-0" style="background-color: #d97706;"></span>
-            <span class="text-[11px] text-slate-700">Grade II</span>
+        <div class="pt-1.5 border-t border-slate-200">
+          <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1">Listed Grades</div>
+          <div class="flex items-center justify-between gap-1 text-[11px] text-slate-700">
+            <span class="inline-flex items-center gap-1">
+              <span class="inline-block w-2 h-2 rounded-full" style="background-color: #9333ea;"></span>I
+            </span>
+            <span class="inline-flex items-center gap-1">
+              <span class="inline-block w-2 h-2 rounded-full" style="background-color: #ea580c;"></span>II*
+            </span>
+            <span class="inline-flex items-center gap-1">
+              <span class="inline-block w-2 h-2 rounded-full" style="background-color: #d97706;"></span>II
+            </span>
           </div>
         </div>
-        <div class="pt-1.5 border-t border-slate-200 space-y-1">
-          <div class="flex items-center gap-2">
-            <span class="inline-block w-3 h-2 border-2 border-red-600 bg-red-500/20 shrink-0"></span>
-            <span class="text-[11px] text-slate-700">Site Boundary</span>
-          </div>
-          <div class="flex items-center gap-2">
-            <span class="inline-block w-3 h-2 border border-dashed border-blue-600 bg-blue-600/10 shrink-0"></span>
-            <span class="text-[11px] text-slate-700">Search Buffer</span>
-          </div>
+        <div class="pt-1.5 border-t border-slate-200 flex items-center justify-between gap-2 text-[10px] text-slate-700">
+          <span class="inline-flex items-center gap-1">
+            <span class="inline-block w-2.5 h-2 border-2 border-red-600 bg-red-500/20 shrink-0"></span>Site
+          </span>
+          <span class="inline-flex items-center gap-1">
+            <span class="inline-block w-2.5 h-2 border border-dashed border-blue-600 bg-blue-600/10 shrink-0"></span>Buffer
+          </span>
         </div>
       </div>
     `;
@@ -93,24 +94,37 @@ class MapLegendControl {
     const applyCollapsedState = (collapsed) => {
       this._collapsed = collapsed;
       body.style.display = collapsed ? 'none' : 'block';
+      // Allow taller legend on desktop, strict viewport cap on compact screens
+      body.style.maxHeight = this._isCompactScreen() ? 'min(260px, 36svh)' : '65vh';
       toggleBtn.textContent = collapsed ? 'Show' : 'Hide';
       toggleBtn.setAttribute('aria-expanded', String(!collapsed));
     };
 
-    toggleBtn?.addEventListener('click', () => {
+    toggleBtn?.addEventListener('click', (e) => {
+      e.stopPropagation();
       this._userToggled = true;
       applyCollapsedState(!this._collapsed);
     });
 
+    // Auto-dismiss expanded legend when user taps the map on mobile/iPad
+    this._onMapInteract = () => {
+      if (this._isCompactScreen() && !this._collapsed) {
+        applyCollapsedState(true);
+      }
+    };
+    this._map.on('click', this._onMapInteract);
+    this._map.on('dragstart', this._onMapInteract);
+
     this._onBreakpointChange = () => {
       if (!this._userToggled) {
         applyCollapsedState(this._isCompactScreen());
+      } else {
+        body.style.maxHeight = this._isCompactScreen() ? 'min(260px, 36svh)' : '65vh';
       }
     };
     this._mobileQuery.addEventListener('change', this._onBreakpointChange);
     window.addEventListener('orientationchange', this._onBreakpointChange);
 
-    // Re-verify collapsed state once MapLibre finishes mounting the control
     requestAnimationFrame(() => {
       if (!this._userToggled) {
         applyCollapsedState(this._isCompactScreen());
@@ -144,6 +158,8 @@ class MapLegendControl {
   }
 
   onRemove() {
+    this._map?.off('click', this._onMapInteract);
+    this._map?.off('dragstart', this._onMapInteract);
     this._mobileQuery?.removeEventListener('change', this._onBreakpointChange);
     window.removeEventListener('orientationchange', this._onBreakpointChange);
     this._container?.parentNode?.removeChild(this._container);
