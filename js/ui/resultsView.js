@@ -1,9 +1,14 @@
 import { normalizeAssetMeta } from './exporter.js';
+import { computeElevationProfile, renderProfileSVG } from '../analysis/terrainProfile.js';
 
 export class ResultsView {
-  constructor(containerId, { onSelectAsset, onExportMarkdown, onExportPDF, onExportGeoJSON }) {
+  constructor(
+    containerId,
+    { onSelectAsset, onFilterCategory, onExportMarkdown, onExportPDF, onExportGeoJSON }
+  ) {
     this.container = document.getElementById(containerId);
     this.onSelectAsset = onSelectAsset;
+    this.onFilterCategory = onFilterCategory;
     this.onExportMarkdown = onExportMarkdown;
     this.onExportPDF = onExportPDF;
     this.onExportGeoJSON = onExportGeoJSON;
@@ -16,9 +21,28 @@ export class ResultsView {
     this.container.innerHTML = `
       <div class="flex items-center gap-3 p-4 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-900">
         <div class="w-4 h-4 border-2 border-amber-600 border-t-transparent rounded-full animate-spin shrink-0"></div>
-        <span>Querying Historic England FeatureServers...</span>
+        <span>Querying Historic England FeatureServers &amp; HER Baseline...</span>
       </div>
     `;
+  }
+
+  async showTerrainProfile(siteFeature, assetFeature) {
+    const slot = this.container?.querySelector('#terrain-profile-slot');
+    if (!slot || !siteFeature || !assetFeature) return;
+
+    const meta = normalizeAssetMeta(assetFeature);
+    slot.innerHTML = `
+      <div class="p-3 bg-slate-50 border border-slate-200 rounded-lg text-[11px] text-slate-600">
+        Sampling terrain elevation profile to <strong>${meta.name}</strong>...
+      </div>
+    `;
+
+    try {
+      const profile = await computeElevationProfile(siteFeature, assetFeature);
+      slot.innerHTML = renderProfileSVG(profile, meta.name);
+    } catch {
+      slot.innerHTML = '';
+    }
   }
 
   render(state) {
@@ -32,7 +56,13 @@ export class ResultsView {
       this.activeFilter = 'ALL';
     }
 
-    
+    const categoryColors = new Map();
+    for (const a of assets) {
+      if (a.properties?._category && a.properties?._color) {
+        categoryColors.set(a.properties._category, a.properties._color);
+      }
+    }
+
     const filtered =
       this.activeFilter === 'ALL'
         ? assets
@@ -43,13 +73,6 @@ export class ResultsView {
            <strong>Layer warnings:</strong> ${errors.map((e) => `${e.layer} (${e.message})`).join('; ')}.
          </div>`
       : '';
-
-    const categoryColors = new Map();
-    for (const a of assets) {
-      if (a.properties?._category && a.properties?._color) {
-        categoryColors.set(a.properties._category, a.properties._color);
-      }
-    }
 
     const pillsHtml = categories
       .map((cat) => {
@@ -75,9 +98,7 @@ export class ResultsView {
             data-filter="${cat}"
             ${styleAttr}
             class="filter-pill inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
-              active
-                ? 'shadow-xs'
-                : 'bg-white text-slate-700 hover:bg-slate-50'
+              active ? 'shadow-xs' : 'bg-white text-slate-700 hover:bg-slate-50'
             }"
           >
             ${dotHtml}
@@ -190,6 +211,8 @@ export class ResultsView {
         </button>
       </div>
 
+      <div id="terrain-profile-slot"></div>
+
       ${errorHtml}
 
       <div class="flex flex-wrap gap-1.5 no-print">${pillsHtml}</div>
@@ -221,6 +244,7 @@ export class ResultsView {
     this.container.querySelectorAll('.filter-pill').forEach((btn) => {
       btn.addEventListener('click', () => {
         this.activeFilter = btn.dataset.filter;
+        this.onFilterCategory?.(this.activeFilter);
         this.render(this.lastState);
       });
     });
@@ -232,7 +256,10 @@ export class ResultsView {
           .forEach((c) => c.classList.remove('is-selected'));
         card.classList.add('is-selected');
         const item = filtered[Number(card.dataset.idx)];
-        if (item) this.onSelectAsset?.(item);
+        if (item) {
+          this.onSelectAsset?.(item);
+          this.showTerrainProfile(this.lastState?.siteFeature, item);
+        }
       });
     });
   }

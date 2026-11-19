@@ -1,11 +1,12 @@
 import { HERITAGE_LAYERS } from '../config/services.js';
+import { queryADSRadius, queryLocalHERBoundary } from './herAdsClient.js';
 
-async function fetchWithRetry(url, retries = 2, baseDelayMs = 400) {
+async function fetchWithRetry(url, options = {}, retries = 2, baseDelayMs = 400) {
   for (let attempt = 0; attempt <= retries; attempt++) {
-    const response = await fetch(url);
+    const response = await fetch(url, options);
     if (response.ok) return response;
 
-    const retryable = [429, 502, 503, 504].includes(response.status);
+    const retryable = [429, 503, 504].includes(response.status);
     if (!retryable || attempt === retries) {
       throw new Error(`HTTP ${response.status}`);
     }
@@ -44,7 +45,11 @@ function esriFeatureToGeoJSON(esriFeat) {
   };
 }
 
-export async function queryHeritageLayers(siteFeature, bufferMeters) {
+export async function queryHeritageLayers(
+  siteFeature,
+  bufferMeters,
+  { includeADS = true } = {}
+) {
   const buffered = turf.buffer(siteFeature, bufferMeters / 1000, { units: 'kilometers' });
   const [minX, minY, maxX, maxY] = turf.bbox(buffered);
 
@@ -106,8 +111,17 @@ export async function queryHeritageLayers(siteFeature, bufferMeters) {
     });
   });
 
-  const settled = await Promise.allSettled(requests);
-  const rawFeatures = [];
+  const placeHint = siteFeature?.properties?.label || '';
+
+  const [settled, adsResult, herCoverage] = await Promise.all([
+    Promise.allSettled(requests),
+    includeADS
+      ? queryADSRadius(minX, minY, maxX, maxY, placeHint).catch(() => [])
+      : Promise.resolve([]),
+    queryLocalHERBoundary(siteFeature).catch(() => null),
+  ]);
+
+  const rawFeatures = [...adsResult];
   const errors = [];
 
   settled.forEach((res, idx) => {
@@ -122,10 +136,15 @@ export async function queryHeritageLayers(siteFeature, bufferMeters) {
   return {
     buffered,
     features: deduplicateFeatures(rawFeatures),
+    herCoverage,
     errors,
   };
 }
 
+/**
+ * Fetches a single full-resolution GeoJSON Feature directly from Historic England's
+ * ArcGIS REST endpoint using its OBJECTID and source layer URL.
+ */
 export async function fetchFullFeatureGeoJSON(feature) {
   const layerUrl = feature?.properties?._layerUrl;
   const objectId = feature?.properties?.OBJECTID;

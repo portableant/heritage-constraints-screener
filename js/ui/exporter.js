@@ -1,3 +1,5 @@
+import { buildExternalHERLinks } from '../services/herAdsClient.js';
+
 /**
  * Triggers a browser file download from string content.
  */
@@ -26,13 +28,15 @@ function formatArcGISDate(rawDate) {
 }
 
 /**
- * Normalizes disparate Historic England ArcGIS attribute schemas into
- * rich, consistent display fields for map popups, sidebar cards, and exports.
+ * Normalizes disparate Historic England, Heritage at Risk, and ADS
+ * attribute schemas into consistent display fields for popups, cards, and exports.
  */
 export function normalizeAssetMeta(feature) {
   const p = feature.properties || {};
   const isResearchReport =
-    p._layerId === 'research-reports' || Boolean(p.Report_Num || p.Report_title);
+    p._layerId === 'research-reports' ||
+    p._layerId === 'ads-records' ||
+    Boolean(p.Report_Num || p.Report_title);
   const isHeritageAtRisk =
     p._category === 'Heritage at Risk' ||
     Boolean(p.Condition || p.Vulnerability || p.PriorityCategory);
@@ -68,10 +72,10 @@ export function normalizeAssetMeta(feature) {
       ? `https://historicengland.org.uk/listing/the-list/list-entry/${listEntry}`
       : null);
 
-  // Enhanced Research Report metadata (Layer 475: All_Reports_05_05_2026_ODH)
+  // Enhanced Research Report & ADS Grey Literature metadata
   const authors = p.Author_s_ ? String(p.Author_s_).trim() : null;
   const year = p.Year ? String(Math.round(Number(p.Year))) : null;
-  const reportType = p.Simple_Report_type || p.Project_type || null;
+  const reportType = p.Simple_Report_type || p.Project_type || p.HistoricType || null;
   const description = p.Brief_description ? String(p.Brief_description).trim() : null;
   const keywords = p.Keyword ? String(p.Keyword).trim() : null;
   const pages = p.Pages ? String(p.Pages).trim() : null;
@@ -89,7 +93,6 @@ export function normalizeAssetMeta(feature) {
   const localAuthority = p.LocalAuthority || p.LPA || p.District || null;
   const ngr = p.NGR || null;
 
-  // Build concise subtitle & detail lines for UI cards and reports
   const detailParts = [];
   if (grade) detailParts.push(`Grade ${grade}`);
   if (isHeritageAtRisk && condition) detailParts.push(`Condition: ${condition}`);
@@ -141,7 +144,7 @@ export function normalizeAssetMeta(feature) {
  */
 export function buildMarkdownBrief(state) {
   const { siteFeature, bufferMeters, results } = state;
-  const { assets, sensitivity, errors = [] } = results;
+  const { assets, sensitivity, herCoverage = null, errors = [] } = results;
   const timestamp = new Date().toISOString().split('T')[0];
 
   const centroid = turf.centroid(siteFeature).geometry.coordinates;
@@ -149,6 +152,7 @@ export function buildMarkdownBrief(state) {
     siteFeature.geometry.type === 'Point'
       ? null
       : Math.round(turf.area(siteFeature));
+  const { heritageGatewayUrl, adsLibraryUrl } = buildExternalHERLinks(siteFeature, bufferMeters);
 
   const lines = [
     `# Automated Heritage Constraints Screening Brief`,
@@ -159,6 +163,7 @@ export function buildMarkdownBrief(state) {
       ? `- **Site Boundary Area:** ${siteAreaSqM.toLocaleString('en-GB')} m² (${(siteAreaSqM / 10000).toFixed(2)} ha)`
       : `- **Site Geometry:** Point location`,
     `- **Search Buffer Radius:** ${bufferMeters} m`,
+    herCoverage ? `- **Responsible Local HER:** ${herCoverage.herName}` : null,
     `- **Initial Sensitivity Rating:** **${sensitivity.level}**`,
     ``,
     `> ${sensitivity.summary}`,
@@ -167,9 +172,8 @@ export function buildMarkdownBrief(state) {
     ``,
     `| Category | Total Within ${bufferMeters} m | Intersecting Site | Nearest Distance |`,
     `| :--- | :---: | :---: | :---: |`,
-  ];
+  ].filter((line) => line !== null);
 
-  // Group counts by category
   const grouped = new Map();
   for (const asset of assets) {
     const meta = normalizeAssetMeta(asset);
@@ -197,7 +201,7 @@ export function buildMarkdownBrief(state) {
 
   if (assets.length === 0) {
     lines.push(
-      `No designated heritage assets or Historic England spatial research reports were returned within ${bufferMeters} m of the site boundary.`
+      `No designated heritage assets or grey literature reports were returned within ${bufferMeters} m of the site boundary.`
     );
   } else {
     assets.forEach((asset, index) => {
@@ -206,16 +210,15 @@ export function buildMarkdownBrief(state) {
         ? '**0 m (Directly Intersects Site)**'
         : `${m.distanceMeters} m`;
       const gradeTag = m.grade ? ` (${m.grade})` : '';
-      const idLabel = m.isResearchReport ? 'Report No.' : 'List Entry';
+      const idLabel = m.isResearchReport ? 'Ref / DOI' : 'List Entry';
       const idTag = m.listEntry !== 'N/A' ? ` — ${idLabel}: \`${m.listEntry}\`` : '';
-      const linkLabel = m.isResearchReport ? 'Download / View Report' : 'View NHLE Record';
+      const linkLabel = m.isResearchReport ? 'View Report / Archive' : 'View Record';
       const linkPart = m.hyperlink ? ` — [${linkLabel}](${m.hyperlink})` : '';
 
       lines.push(
         `${index + 1}. **${m.name}**${gradeTag} — *${m.category}*${idTag}  \n   Distance: ${distLabel}${linkPart}`
       );
 
-      // Append rich secondary metadata lines when available
       const metaBullets = [];
       if (m.condition) metaBullets.push(`Condition: **${m.condition}**`);
       if (m.priorityCategory) metaBullets.push(`Priority: ${m.priorityCategory}`);
@@ -225,7 +228,7 @@ export function buildMarkdownBrief(state) {
         const citation = [m.authors, m.year ? `(${m.year})` : null].filter(Boolean).join(' ');
         metaBullets.push(`Authors / Year: ${citation}`);
       }
-      if (m.reportType) metaBullets.push(`Investigation Type: ${m.reportType}`);
+      if (m.reportType) metaBullets.push(`Type: ${m.reportType}`);
       if (m.fileSpec) metaBullets.push(`Document: ${m.fileSpec}`);
       if (m.listDate) metaBullets.push(`Designation Date: ${m.listDate}`);
       if (m.ngr) metaBullets.push(`NGR: \`${m.ngr}\``);
@@ -247,13 +250,19 @@ export function buildMarkdownBrief(state) {
     }
   }
 
+  const herPortalNote = herCoverage?.herUrl
+    ? ` or the [${herCoverage.herName} portal](${herCoverage.herUrl})`
+    : '';
+
   lines.push(
     ``,
     `---`,
     `## Planning & Data Caveats`,
     ``,
-    `- **Data Currency:** Live spatial data queried from Historic England Open Data ArcGIS FeatureServices on ${timestamp}.`,
-    `- **Non-Designated Heritage Assets:** This screening covers national designations, the Heritage at Risk Register, and Historic England Research Reports. Consult the relevant local authority **Historic Environment Record (HER)** for non-designated archaeological monuments, findspots, and historic landscape characterization.`,
+    `- **Data Currency:** Live spatial data queried from Historic England Open Data ArcGIS FeatureServices and DataCite/ADS on ${timestamp}.`,
+    `- **Local HER & ADS Verification:** Supplement this automated screening with a formal consultation with ${
+      herCoverage ? `**${herCoverage.herName}**` : 'the local Historic Environment Record'
+    }${herPortalNote}, plus a coordinate check via [Heritage Gateway (${bufferMeters} m search)](${heritageGatewayUrl}) and [ADS ArchSearch](${adsLibraryUrl}) for non-designated monuments and unpublished fieldwork events.`,
     `- **Setting & Significance:** Spatial proximity does not equate to harm. Assessment of setting impacts must follow *Historic Environment Good Practice Advice in Planning Note 3 (The Setting of Heritage Assets)* and NPPF Chapter 16.`
   );
 
@@ -276,9 +285,10 @@ export function downloadMarkdown(state) {
 }
 
 /**
- * Converts the Markdown brief into styled HTML and exports a paginated A4 PDF.
+ * Converts the Markdown brief into styled HTML, embeds the live map snapshot,
+ * and exports a paginated A4 PDF.
  */
-export async function downloadPDF(state) {
+export async function downloadPDF(state, mapSnapshotDataUrl = null) {
   if (!state?.siteFeature || !state?.results) return;
 
   const timestamp = new Date().toISOString().split('T')[0];
@@ -286,6 +296,17 @@ export async function downloadPDF(state) {
   const renderedHtml = window.marked
     ? window.marked.parse(markdown)
     : `<pre>${markdown}</pre>`;
+
+  const mapFigureHtml = mapSnapshotDataUrl
+    ? `
+      <div class="pdf-map-box">
+        <img src="${mapSnapshotDataUrl}" alt="Site and Heritage Constraints Buffer Map" />
+        <div class="pdf-map-caption">
+          Site boundary (red) and ${state.bufferMeters} m screening buffer (blue dashed) showing designated heritage assets, Heritage at Risk entries, and ADS grey literature records.
+        </div>
+      </div>
+    `
+    : '';
 
   const wrapper = document.createElement('div');
   wrapper.innerHTML = `
@@ -316,6 +337,26 @@ export async function downloadPDF(state) {
       }
       .pdf-report li {
         page-break-inside: avoid;
+      }
+      .pdf-map-box {
+        margin: 12px 0 16px 0;
+        border: 1px solid #cbd5e1;
+        border-radius: 6px;
+        overflow: hidden;
+        page-break-inside: avoid;
+      }
+      .pdf-map-box img {
+        width: 100%;
+        max-height: 260px;
+        object-fit: cover;
+        display: block;
+      }
+      .pdf-map-caption {
+        background: #f8fafc;
+        padding: 6px 10px;
+        font-size: 8.5pt;
+        color: #475569;
+        border-top: 1px solid #e2e8f0;
       }
       .pdf-report blockquote {
         margin: 8px 0;
@@ -357,7 +398,9 @@ export async function downloadPDF(state) {
         margin: 16px 0;
       }
     </style>
-    <div class="pdf-report">${renderedHtml}</div>
+    <div class="pdf-report">
+      ${renderedHtml.replace('</blockquote>', `</blockquote>${mapFigureHtml}`)}
+    </div>
   `;
 
   if (window.html2pdf) {
@@ -396,6 +439,7 @@ export function downloadGeoJSON(state) {
       generatedAt: timestamp,
       bufferMeters,
       sensitivity: results.sensitivity.level,
+      localHER: results.herCoverage?.herName || null,
       totalAssets: results.assets.length,
     },
     features: [

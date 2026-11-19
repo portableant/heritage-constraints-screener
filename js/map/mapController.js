@@ -3,13 +3,18 @@ import { normalizeAssetMeta } from '../ui/exporter.js';
 import { fetchFullFeatureGeoJSON } from '../services/arcgisClient.js';
 
 class MapLegendControl {
+  constructor(onToggleCategories) {
+    this.onToggleCategories = onToggleCategories;
+    this.enabledCategories = new Set();
+  }
+
   onAdd(map) {
     this._map = map;
     this._collapsed = false;
 
     this._container = document.createElement('div');
     this._container.className =
-      'maplibregl-ctrl bg-white/95 backdrop-blur-xs border border-slate-200 rounded-lg shadow-md text-xs text-slate-800 p-2.5 max-w-[220px] select-none';
+      'maplibregl-ctrl bg-white/95 backdrop-blur-xs border border-slate-200 rounded-lg shadow-md text-xs text-slate-800 p-2.5 max-w-[235px] select-none';
 
     const uniqueCategories = [];
     const seen = new Set();
@@ -19,27 +24,31 @@ class MapLegendControl {
         uniqueCategories.push({ category: layer.category, color: layer.color });
       }
     }
+    uniqueCategories.push({ category: 'ADS Grey Literature', color: '#4f46e5' });
+
+    uniqueCategories.forEach((c) => this.enabledCategories.add(c.category));
 
     const categoryRows = uniqueCategories
       .map(
         ({ category, color }) => `
-          <div class="flex items-center gap-2">
+          <label class="flex items-center gap-2 cursor-pointer hover:bg-slate-50 rounded px-1 py-0.5">
+            <input type="checkbox" data-legend-cat="${category}" checked class="rounded border-slate-300 text-slate-900 focus:ring-0" />
             <span class="inline-block w-2.5 h-2.5 rounded-full shrink-0 border border-white shadow-2xs" style="background-color: ${color};"></span>
             <span class="truncate text-[11px] text-slate-700">${category}</span>
-          </div>
+          </label>
         `
       )
       .join('');
 
     this._container.innerHTML = `
       <div class="flex items-center justify-between gap-3">
-        <span class="font-semibold text-[11px] uppercase tracking-wider text-slate-600">Map Key</span>
+        <span class="font-semibold text-[11px] uppercase tracking-wider text-slate-600">Map Key &amp; Layers</span>
         <button type="button" id="legend-toggle-btn" class="text-[11px] text-slate-500 hover:text-slate-900 font-medium">
           Hide
         </button>
       </div>
       <div id="legend-body" class="mt-2 space-y-2">
-        <div class="space-y-1">
+        <div class="space-y-0.5">
           ${categoryRows}
         </div>
         <div class="pt-1.5 border-t border-slate-200 space-y-1">
@@ -78,7 +87,30 @@ class MapLegendControl {
       toggleBtn.textContent = this._collapsed ? 'Show' : 'Hide';
     });
 
+    this._container.querySelectorAll('input[data-legend-cat]').forEach((cb) => {
+      cb.addEventListener('change', () => {
+        const cat = cb.dataset.legendCat;
+        if (cb.checked) {
+          this.enabledCategories.add(cat);
+        } else {
+          this.enabledCategories.delete(cat);
+        }
+        this.onToggleCategories?.([...this.enabledCategories]);
+      });
+    });
+
     return this._container;
+  }
+
+  syncCheckboxes(activeCategory) {
+    if (!this._container) return;
+    this.enabledCategories.clear();
+    this._container.querySelectorAll('input[data-legend-cat]').forEach((cb) => {
+      const cat = cb.dataset.legendCat;
+      const shouldCheck = activeCategory === 'ALL' || cat === activeCategory;
+      cb.checked = shouldCheck;
+      if (shouldCheck) this.enabledCategories.add(cat);
+    });
   }
 
   onRemove() {
@@ -88,9 +120,10 @@ class MapLegendControl {
 }
 
 export class MapController {
-  constructor(containerId, { onSiteChanged }) {
+  constructor(containerId, { onSiteChanged, onAssetClicked }) {
     this.containerId = containerId;
     this.onSiteChanged = onSiteChanged;
+    this.onAssetClicked = onAssetClicked;
     this.isDrawing = false;
     this.drawCoords = [];
     this.isLoaded = false;
@@ -100,6 +133,7 @@ export class MapController {
 
     this.map = new maplibregl.Map({
       container: containerId,
+      preserveDrawingBuffer: true,
       style: {
         version: 8,
         sources: {
@@ -117,9 +151,13 @@ export class MapController {
       zoom: 6,
     });
 
+    this.legendControl = new MapLegendControl((enabledCategories) => {
+      this.setVisibleCategories(enabledCategories);
+    });
+
     this.map.addControl(new maplibregl.NavigationControl(), 'top-right');
     this.map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-left');
-    this.map.addControl(new MapLegendControl(), 'bottom-right');
+    this.map.addControl(this.legendControl, 'bottom-right');
 
     this.map.on('load', () => {
       this.isLoaded = true;
@@ -252,9 +290,9 @@ export class MapController {
         'circle-color': [
           'match',
           ['coalesce', ['get', 'Grade'], ['get', 'GRADE'], ''],
-          'I', '#9333ea',      // Purple for Grade I
-          'II*', '#ea580c',    // Deep Orange for Grade II*
-          'II', '#d97706',     // Amber for Grade II
+          'I', '#9333ea',
+          'II*', '#ea580c',
+          'II', '#d97706',
           ['get', '_color'],
         ],
         'circle-stroke-width': 2,
@@ -313,6 +351,41 @@ export class MapController {
     });
   }
 
+  /**
+   * Filters map polygons and markers to match active category pills or legend checkboxes.
+   */
+  setVisibleCategories(categories) {
+    if (!this.isLoaded) return;
+
+    const catFilter = ['in', ['get', '_category'], ['literal', categories]];
+    const polyGeomFilter = ['in', ['geometry-type'], ['literal', ['Polygon', 'MultiPolygon']]];
+
+    this.map.setFilter('assets-fill', ['all', polyGeomFilter, catFilter]);
+    this.map.setFilter('assets-outline', ['all', polyGeomFilter, catFilter]);
+    this.map.setFilter('asset-markers', catFilter);
+  }
+
+  syncPillFilter(activeCategory) {
+    this.legendControl.syncCheckboxes(activeCategory);
+    if (activeCategory === 'ALL') {
+      this.setVisibleCategories([...this.legendControl.enabledCategories]);
+    } else {
+      this.setVisibleCategories([activeCategory]);
+    }
+  }
+
+  /**
+   * Captures a PNG data URL of the live MapLibre canvas for the PDF report.
+   */
+  captureSnapshot() {
+    if (!this.isLoaded) return null;
+    try {
+      return this.map.getCanvas().toDataURL('image/png');
+    } catch {
+      return null;
+    }
+  }
+
   _bindMapEvents() {
     this.map.on('click', async (e) => {
       if (this.isDrawing) {
@@ -329,6 +402,7 @@ export class MapController {
         const cachedFeature = (uid && this.assetLookup.get(uid)) || hit[0];
         this._highlightAsset(cachedFeature);
         this._showAssetPopup(cachedFeature, e.lngLat);
+        this.onAssetClicked?.(cachedFeature);
 
         const fullFeature = await fetchFullFeatureGeoJSON(cachedFeature);
         if (uid) this.assetLookup.set(uid, fullFeature);
@@ -463,6 +537,9 @@ export class MapController {
       .map((feat) => this._toMarkerPoint(feat))
       .filter(Boolean);
 
+    this.legendControl.syncCheckboxes('ALL');
+    this.setVisibleCategories([...this.legendControl.enabledCategories]);
+
     this.map.getSource('selected-asset-src')?.setData({
       type: 'FeatureCollection',
       features: [],
@@ -545,7 +622,7 @@ export class MapController {
       ? `<span class="inline-block px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 text-[10px]">Polygon Boundary</span>`
       : `<span class="inline-block px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 text-[10px]">Point Location</span>`;
 
-    const linkLabel = meta.isResearchReport ? 'Open Research Report' : 'Open NHLE Record';
+    const linkLabel = meta.isResearchReport ? 'Open Research Report' : 'Open Record';
     const linkHtml = meta.hyperlink
       ? `<div class="pt-1">
            <a href="${meta.hyperlink}" target="_blank" rel="noopener noreferrer" class="text-amber-700 underline font-medium">${linkLabel} &rarr;</a>
