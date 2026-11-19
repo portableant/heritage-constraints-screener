@@ -9,14 +9,20 @@ class MapLegendControl {
     this._userToggled = false;
   }
 
+  _isCompactScreen() {
+    const isIpadOrTablet =
+      navigator.maxTouchPoints > 1 && window.innerWidth <= 1366;
+    return window.innerWidth <= 1024 || isIpadOrTablet;
+  }
+
   onAdd(map) {
     this._map = map;
-    this._mobileQuery = window.matchMedia('(max-width: 767px)');
-    this._collapsed = this._mobileQuery.matches;
+    this._mobileQuery = window.matchMedia('(max-width: 1024px)');
+    this._collapsed = this._isCompactScreen();
 
     this._container = document.createElement('div');
     this._container.className =
-      'maplibregl-ctrl bg-white/95 backdrop-blur-xs border border-slate-200 rounded-lg shadow-md text-xs text-slate-800 p-2 sm:p-2.5 max-w-[215px] sm:max-w-[235px] select-none';
+      'maplibregl-ctrl bg-white/95 backdrop-blur-xs border border-slate-200 rounded-lg shadow-md text-xs text-slate-800 p-2 lg:p-2.5 max-w-[215px] lg:max-w-[235px] select-none';
 
     const uniqueCategories = [];
     const seen = new Set();
@@ -49,7 +55,7 @@ class MapLegendControl {
           ${this._collapsed ? 'Show' : 'Hide'}
         </button>
       </div>
-      <div id="legend-body" class="${this._collapsed ? 'hidden ' : ''}mt-2 space-y-2 max-h-[45vh] overflow-y-auto">
+      <div id="legend-body" class="mt-2 space-y-2 max-h-[45vh] overflow-y-auto" style="display: ${this._collapsed ? 'none' : 'block'};">
         <div class="space-y-0.5">
           ${categoryRows}
         </div>
@@ -86,7 +92,7 @@ class MapLegendControl {
 
     const applyCollapsedState = (collapsed) => {
       this._collapsed = collapsed;
-      body.classList.toggle('hidden', collapsed);
+      body.style.display = collapsed ? 'none' : 'block';
       toggleBtn.textContent = collapsed ? 'Show' : 'Hide';
       toggleBtn.setAttribute('aria-expanded', String(!collapsed));
     };
@@ -96,12 +102,20 @@ class MapLegendControl {
       applyCollapsedState(!this._collapsed);
     });
 
-    this._onBreakpointChange = (e) => {
+    this._onBreakpointChange = () => {
       if (!this._userToggled) {
-        applyCollapsedState(e.matches);
+        applyCollapsedState(this._isCompactScreen());
       }
     };
     this._mobileQuery.addEventListener('change', this._onBreakpointChange);
+    window.addEventListener('orientationchange', this._onBreakpointChange);
+
+    // Re-verify collapsed state once MapLibre finishes mounting the control
+    requestAnimationFrame(() => {
+      if (!this._userToggled) {
+        applyCollapsedState(this._isCompactScreen());
+      }
+    });
 
     this._container.querySelectorAll('input[data-legend-cat]').forEach((cb) => {
       cb.addEventListener('change', () => {
@@ -131,6 +145,7 @@ class MapLegendControl {
 
   onRemove() {
     this._mobileQuery?.removeEventListener('change', this._onBreakpointChange);
+    window.removeEventListener('orientationchange', this._onBreakpointChange);
     this._container?.parentNode?.removeChild(this._container);
     this._map = undefined;
   }
